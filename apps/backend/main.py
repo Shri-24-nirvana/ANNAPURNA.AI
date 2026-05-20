@@ -124,6 +124,31 @@ def toggle_skip_meal(data: AttendanceUpdate, current_user: models.User = Depends
     db.commit()
     return {"message": "Attendance updated successfully", "status": data.status}
 
+class FeedbackCreate(BaseModel):
+    meal_id: int
+    rating: int
+    comment: str
+
+@app.post("/student/feedback")
+def submit_feedback(data: FeedbackCreate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    sentiment = "NEUTRAL"
+    if data.rating >= 4:
+        sentiment = "POSITIVE"
+    elif data.rating <= 2:
+        sentiment = "NEGATIVE"
+        
+    feedback = models.Feedback(
+        institution_id=current_user.institution_id,
+        user_id=current_user.id,
+        meal_id=data.meal_id,
+        rating=data.rating,
+        comment=data.comment,
+        sentiment=sentiment
+    )
+    db.add(feedback)
+    db.commit()
+    return {"message": "Feedback submitted successfully"}
+
 # --- MANAGER APP ENDPOINTS ---
 
 @app.get("/manager/prep-sheet")
