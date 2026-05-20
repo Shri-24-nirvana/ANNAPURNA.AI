@@ -123,3 +123,68 @@ def toggle_skip_meal(data: AttendanceUpdate, current_user: models.User = Depends
         
     db.commit()
     return {"message": "Attendance updated successfully", "status": data.status}
+
+# --- MANAGER APP ENDPOINTS ---
+
+@app.get("/manager/prep-sheet")
+def get_prep_sheet(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    # if current_user.role != "manager":
+    #     raise HTTPException(status_code=403, detail="Not authorized")
+        
+    inst_id = current_user.institution_id
+    inst = db.query(models.Institution).filter_by(id=inst_id).first()
+    
+    today = datetime.now(timezone.utc)
+    # Find today's lunch
+    lunch = db.query(models.Meal).filter(
+        models.Meal.institution_id == inst_id,
+        models.Meal.meal_type == "LUNCH"
+    ).first()
+    
+    total_students = inst.total_students if inst else 2000
+    
+    if lunch:
+        # Count explicit skips
+        skipped_count = db.query(models.Attendance).filter(
+            models.Attendance.meal_id == lunch.id,
+            models.Attendance.status == "SKIPPING"
+        ).count()
+    else:
+        skipped_count = 0
+        
+    import ai_engine
+    predicted = ai_engine.calculate_predicted_attendance(total_students, skipped_count)
+    prep_data = ai_engine.generate_prep_sheet(predicted)
+    
+    return {
+        "predicted_attendance": predicted,
+        "total_enrolled": total_students,
+        "skipped_count": skipped_count,
+        "prep_data": prep_data
+    }
+
+@app.get("/manager/inventory")
+def get_inventory(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    items = db.query(models.InventoryItem).filter_by(institution_id=current_user.institution_id).all()
+    return items
+
+@app.get("/manager/feedback")
+def get_feedback(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    feedbacks = db.query(models.Feedback).filter_by(institution_id=current_user.institution_id).order_by(models.Feedback.created_at.desc()).all()
+    
+    # Calculate distributions
+    ratings = [f.rating for f in feedbacks]
+    distribution = {
+        "5": ratings.count(5),
+        "4": ratings.count(4),
+        "3": ratings.count(3),
+        "2": ratings.count(2),
+        "1": ratings.count(1),
+    }
+    
+    return {
+        "feedbacks": feedbacks,
+        "distribution": distribution,
+        "total": len(feedbacks)
+    }
+

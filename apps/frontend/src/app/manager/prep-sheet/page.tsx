@@ -1,71 +1,96 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Clock } from "lucide-react";
-
-const prepData = [
-  { ingredient: "RICE", category: "Grains", unit: "KG", amount: 190 },
-  { ingredient: "DAL", category: "Pulses", unit: "KG", amount: 110 },
-  { ingredient: "PANEER", category: "Dairy", unit: "KG", amount: 85 },
-  { ingredient: "ONION", category: "Vegetables", unit: "KG", amount: 20 },
-  { ingredient: "TOMATO", category: "Vegetables", unit: "KG", amount: 45 },
-  { ingredient: "SPICES", category: "Misc", unit: "KG", amount: 10 },
-  { ingredient: "COOKING OIL", category: "Fats/Oils", unit: "Liters", amount: 30 },
-];
+import { Clock, Loader2, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 export default function PrepSheetPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await apiFetch("/manager/prep-sheet");
+        setData(response);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  if (loading) return <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>;
+
+  const prepData = data?.prep_data || [];
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">AI OPTIMIZED PREP SHEET - LUNCH</h2>
       
-      <div className="flex gap-4">
-        <Card className="flex-1 shadow-sm border-slate-200">
-           <CardContent className="p-4 flex flex-col justify-center h-full">
-              <p className="text-sm font-semibold text-slate-900 mb-1">Operational Context: <span className="font-normal text-slate-600">Tuesday, October 26, 2026.</span></p>
-              <p className="text-sm font-semibold text-slate-900">Meal: <span className="font-normal text-slate-600">LUNCH.</span></p>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">AI Optimized Prep Sheet</h2>
+        <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-bold flex items-center gap-2">
+           <Clock className="h-3 w-3" /> FOR: LUNCH (12:30 PM)
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <Card className="bg-white border-l-4 border-l-[#4a7c82]">
+           <CardContent className="pt-6">
+             <p className="text-sm font-semibold text-slate-500 mb-1">Total Enrolled</p>
+             <p className="text-3xl font-black text-slate-900">{data?.total_enrolled || 2000}</p>
            </CardContent>
         </Card>
-        
-        <Card className="w-1/3 shadow-sm border-0 bg-[#e0f2f1]">
-           <CardContent className="p-4 flex flex-col justify-center h-full border-l-4 border-[#00796b]">
-              <p className="text-sm font-semibold text-slate-900 mb-1">AI Predicted Attendance:</p>
-              <p className="text-xl font-bold text-[#00796b]">1800/2000 students (90%)</p>
+        <Card className="bg-white border-l-4 border-l-orange-400">
+           <CardContent className="pt-6">
+             <p className="text-sm font-semibold text-slate-500 mb-1">Explicitly Skipped</p>
+             <p className="text-3xl font-black text-slate-900">{data?.skipped_count || 0}</p>
+           </CardContent>
+        </Card>
+        <Card className="bg-[#e6f4f1] border-l-4 border-l-teal-600">
+           <CardContent className="pt-6 flex justify-between items-center">
+             <div>
+                <p className="text-sm font-bold text-teal-800 mb-1">AI Predicted Attendance</p>
+                <p className="text-4xl font-black text-teal-900">{data?.predicted_attendance || 0}</p>
+             </div>
+             <Users className="h-10 w-10 text-teal-300" />
            </CardContent>
         </Card>
       </div>
 
-      <Card className="shadow-sm border-slate-200">
-        <CardContent className="p-0">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-900 font-bold border-b border-slate-200">
+      <Card className="border-0 shadow-sm rounded-xl overflow-hidden">
+         <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
               <tr>
-                <th className="px-6 py-4">Ingredient</th>
-                <th className="px-6 py-4">Category</th>
-                <th className="px-6 py-4">Unit</th>
-                <th className="px-6 py-4 text-right">AI Recommended Amount</th>
+                 <th className="px-6 py-4 font-bold">Ingredient</th>
+                 <th className="px-6 py-4 font-bold">Category</th>
+                 <th className="px-6 py-4 font-bold text-right">Required Amount</th>
               </tr>
             </thead>
-            <tbody>
-              {prepData.map((item, index) => (
-                <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="px-6 py-4 font-medium text-slate-900">{item.ingredient}</td>
-                  <td className="px-6 py-4 text-slate-600">{item.category}</td>
-                  <td className="px-6 py-4 text-slate-600">{item.unit}</td>
-                  <td className="px-6 py-4 font-medium text-slate-900 text-right">{item.amount}</td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-slate-100">
+               {prepData.map((item: any, i: number) => (
+                 <tr key={i} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-bold text-slate-900">{item.ingredient}</td>
+                    <td className="px-6 py-4 text-slate-500 font-medium">
+                       <span className="px-2.5 py-1 bg-slate-100 rounded-md text-xs">{item.category}</span>
+                    </td>
+                    <td className="px-6 py-4 font-black text-right text-lg text-[#3b7280]">
+                       {item.amount} <span className="text-sm font-semibold text-slate-400">{item.unit}</span>
+                    </td>
+                 </tr>
+               ))}
+               {prepData.length === 0 && (
+                 <tr>
+                   <td colSpan={3} className="px-6 py-8 text-center text-slate-500">No data available.</td>
+                 </tr>
+               )}
             </tbody>
-          </table>
-          <div className="p-4 flex items-center justify-between border-t border-slate-200 bg-slate-50">
-             <button className="px-6 py-2 bg-[#4a7c82] hover:bg-[#386065] text-white rounded-md font-semibold text-sm transition-colors shadow-sm">
-                Generate Prep Sheet
-             </button>
-             <div className="flex items-center gap-1 text-xs text-slate-500 font-medium">
-                <Clock className="h-3 w-3" /> Last AI Refresh: 5m ago
-             </div>
-          </div>
-        </CardContent>
+         </table>
       </Card>
+      
     </div>
   );
 }

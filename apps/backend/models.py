@@ -57,3 +57,33 @@ class Attendance(Base):
 
     user = relationship("User", back_populates="attendance")
     meal = relationship("Meal", back_populates="attendance")
+
+class InventoryItem(Base):
+    __tablename__ = "inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id"))
+    item_name = Column(String)
+    category = Column(String)
+    unit = Column(String)
+    current_stock = Column(Float)
+    reorder_limit = Column(Float)
+    status = Column(String) # OPTIMAL, LOW, CRITICAL
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    institution = relationship("Institution")
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    institution_id = Column(Integer, ForeignKey("institutions.id"))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    meal_id = Column(Integer, ForeignKey("meals.id"))
+    rating = Column(Integer) # 1 to 5
+    comment = Column(String, nullable=True)
+    sentiment = Column(String) # POSITIVE, NEUTRAL, NEGATIVE
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    institution = relationship("Institution")
+    meal = relationship("Meal")

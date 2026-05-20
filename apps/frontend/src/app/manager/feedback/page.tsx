@@ -2,121 +2,142 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LabelList } from "recharts";
-import { Smile, Frown, Meh } from "lucide-react";
+import { Smile, Frown, Meh, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
-const ratingData = [
-  { name: '1 star', val: 5 },
-  { name: '2 stars', val: 10 },
-  { name: '3 stars', val: 25 },
-  { name: '4 stars', val: 55 },
-  { name: '5 stars', val: 55 },
-];
+export default function FeedbackAnalysis() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-export default function FeedbackPage() {
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await apiFetch("/manager/feedback");
+        setData(response);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  if (loading) return <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>;
+
+  const distribution = data?.distribution || { "5": 0, "4": 0, "3": 0, "2": 0, "1": 0 };
+  const chartData = [
+    { rating: "5 Star", count: distribution["5"] },
+    { rating: "4 Star", count: distribution["4"] },
+    { rating: "3 Star", count: distribution["3"] },
+    { rating: "2 Star", count: distribution["2"] },
+    { rating: "1 Star", count: distribution["1"] },
+  ];
+
+  const feedbacks = data?.feedbacks || [];
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">STUDENT FEEDBACK & RATING ANALYSIS</h2>
+      
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">Feedback & Sentiment Analysis</h2>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Left Column */}
-        <div className="space-y-6">
-          <Card className="shadow-sm border-slate-200">
-            <CardHeader className="pb-2">
-               <CardTitle className="text-base font-bold text-slate-900">AI Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-               <p className="text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">OVERALL RATING:</p>
-               <div className="flex items-baseline gap-2">
-                 <span className="text-4xl font-black text-slate-900">4.2/5 stars</span>
-                 <span className="text-sm font-medium text-slate-500">(Past Week)</span>
-               </div>
-            </CardContent>
-          </Card>
+        {/* Sentiment Summary */}
+        <Card className="col-span-1 shadow-sm border-0">
+           <CardHeader className="pb-2 border-b border-slate-100">
+             <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide">AI Sentiment Breakdown</CardTitle>
+           </CardHeader>
+           <CardContent className="pt-6 space-y-6">
+              
+              <div className="flex items-center gap-4">
+                 <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                    <Smile className="h-6 w-6 text-green-600" />
+                 </div>
+                 <div>
+                    <p className="text-sm font-bold text-slate-900">Positive (4-5 Stars)</p>
+                    <p className="text-2xl font-black text-green-600">{distribution["5"] + distribution["4"]}</p>
+                 </div>
+              </div>
 
-          <Card className="shadow-sm border-slate-200">
-            <CardHeader className="pb-0">
-               <CardTitle className="text-base font-bold text-slate-900">Anonymous Rating Distribution (1-5 stars)</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6 h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ratingData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <Bar dataKey="val" fill="#3b7280" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="val" position="top" fill="#475569" fontSize={12} fontWeight={600} />
+              <div className="flex items-center gap-4">
+                 <div className="h-12 w-12 rounded-full bg-yellow-100 flex items-center justify-center">
+                    <Meh className="h-6 w-6 text-yellow-600" />
+                 </div>
+                 <div>
+                    <p className="text-sm font-bold text-slate-900">Neutral (3 Stars)</p>
+                    <p className="text-2xl font-black text-yellow-600">{distribution["3"]}</p>
+                 </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                 <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
+                    <Frown className="h-6 w-6 text-red-600" />
+                 </div>
+                 <div>
+                    <p className="text-sm font-bold text-slate-900">Negative (1-2 Stars)</p>
+                    <p className="text-2xl font-black text-red-600">{distribution["2"] + distribution["1"]}</p>
+                 </div>
+              </div>
+
+           </CardContent>
+        </Card>
+
+        {/* Rating Distribution Chart */}
+        <Card className="col-span-1 md:col-span-2 shadow-sm border-0">
+           <CardHeader className="pb-2 border-b border-slate-100">
+             <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide">Anonymous Rating Distribution</CardTitle>
+           </CardHeader>
+           <CardContent className="pt-6 h-64">
+             <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="rating" type="category" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} width={60} />
+                  <Bar dataKey="count" fill="#4a7c82" radius={[0, 4, 4, 0]} barSize={24}>
+                     <LabelList dataKey="count" position="right" fill="#475569" fontSize={12} fontWeight={700} />
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
-              <p className="text-center font-bold text-sm text-slate-900 mt-4">Anonymous Rating Distribution (1-5 stars)</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column */}
-        <div className="space-y-6">
-          <Card className="shadow-sm border-slate-200">
-            <CardHeader className="pb-2">
-               <CardTitle className="text-base font-bold text-slate-900">AI Generated Feedback Summary</CardTitle>
-               <p className="text-xs text-slate-500">Sentiment Analysis - BERT ref</p>
-            </CardHeader>
-            <CardContent className="pt-2">
-               <p className="text-sm font-medium text-slate-900 mb-3">Summary of 150 submissions:</p>
-               <ul className="space-y-3">
-                 <li className="flex items-start gap-2 text-sm text-slate-800">
-                   <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shadow-[0_0_4px_rgba(34,197,94,0.8)]"></div>
-                   <span>Students strongly appreciate Friday's Paneer Tikka (Praise Sentiment).</span>
-                 </li>
-                 <li className="flex items-start gap-2 text-sm text-slate-800">
-                   <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 shadow-[0_0_4px_rgba(239,68,68,0.8)]"></div>
-                   <span>Recurrent complaints about Tuesday's overcooked vegetables (Negative Sentiment).</span>
-                 </li>
-                 <li className="flex items-start gap-2 text-sm text-slate-800">
-                   <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 mt-1.5 shadow-[0_0_4px_rgba(234,179,8,0.8)]"></div>
-                   <span>Suggestions for more variety in breakfast options (Neutral Sentiment).</span>
-                 </li>
-               </ul>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm border-slate-200">
-            <CardHeader className="pb-2">
-               <CardTitle className="text-base font-bold text-slate-900">Anonymous Student Comments</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-2">
-               
-               <div className="flex justify-between items-start border-b border-slate-100 pb-3">
-                 <div>
-                   <p className="text-sm font-bold text-slate-900">Student_A12</p>
-                   <p className="text-xs text-slate-500">2026-10-26 14:00 AM</p>
-                 </div>
-                 <div className="text-right">
-                   <p className="text-sm font-bold text-slate-900 flex items-center gap-1 justify-end mb-1">
-                      Anonymous rating: 4 stars <Smile className="h-4 w-4 text-green-500 bg-green-100 rounded-full" />
-                   </p>
-                   <p className="text-sm text-slate-700">Lunch Paneer was excellent!</p>
-                 </div>
-               </div>
-
-               <div className="flex justify-between items-start">
-                 <div>
-                   <p className="text-sm font-bold text-slate-900">Student_A11</p>
-                   <p className="text-xs text-slate-500">2026-10-26 17:00 AM</p>
-                 </div>
-                 <div className="text-right">
-                   <p className="text-sm font-bold text-slate-900 flex items-center gap-1 justify-end mb-1">
-                      Anonymous rating: 4 stars <Frown className="h-4 w-4 text-red-500 bg-red-100 rounded-full" />
-                   </p>
-                   <p className="text-sm text-slate-700">Tuesday veg overcooked</p>
-                 </div>
-               </div>
-
-            </CardContent>
-          </Card>
-        </div>
-
+             </ResponsiveContainer>
+           </CardContent>
+        </Card>
       </div>
+
+      {/* Raw Comments Stream */}
+      <Card className="shadow-sm border-0">
+         <CardHeader className="pb-2 border-b border-slate-100 bg-slate-50 rounded-t-xl">
+            <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide">AI Processed Comments</CardTitle>
+         </CardHeader>
+         <CardContent className="p-0">
+            <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+               {feedbacks.map((fb: any, i: number) => {
+                 let tagClass = "bg-green-100 text-green-700";
+                 if (fb.sentiment === "NEGATIVE") tagClass = "bg-red-100 text-red-700";
+                 else if (fb.sentiment === "NEUTRAL") tagClass = "bg-yellow-100 text-yellow-800";
+
+                 return (
+                   <div key={i} className="p-5 hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-3 mb-2">
+                         <span className="px-2 py-0.5 bg-slate-800 text-white rounded text-xs font-bold">{fb.rating} ★</span>
+                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${tagClass}`}>
+                            {fb.sentiment}
+                         </span>
+                         <span className="text-xs text-slate-400 font-medium ml-auto">Just now</span>
+                      </div>
+                      <p className="text-slate-700 text-sm">{fb.comment}</p>
+                   </div>
+                 );
+               })}
+               {feedbacks.length === 0 && (
+                 <div className="p-8 text-center text-slate-500 font-medium">No feedback collected yet.</div>
+               )}
+            </div>
+         </CardContent>
+      </Card>
+      
     </div>
   );
 }

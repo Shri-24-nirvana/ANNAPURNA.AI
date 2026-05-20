@@ -83,6 +83,32 @@ def seed_db():
         db.commit()
         print("Created Meals for today.")
         
+    # 4. Add Inventory Items
+    if not db.query(models.InventoryItem).first():
+        items = [
+            models.InventoryItem(institution_id=inst.id, item_name="RICE", category="Grains", unit="KG", current_stock=750, reorder_limit=200, status="OPTIMAL"),
+            models.InventoryItem(institution_id=inst.id, item_name="DAL", category="Legumes", unit="KG", current_stock=180, reorder_limit=150, status="LOW"),
+            models.InventoryItem(institution_id=inst.id, item_name="ONION", category="Vegetables", unit="KG", current_stock=40, reorder_limit=100, status="CRITICAL"),
+            models.InventoryItem(institution_id=inst.id, item_name="PANEER", category="Dairy", unit="KG", current_stock=120, reorder_limit=50, status="OPTIMAL")
+        ]
+        db.add_all(items)
+        db.commit()
+        print("Created Inventory Items.")
+
+    # 5. Add Feedback
+    if not db.query(models.Feedback).first():
+        lunch = db.query(models.Meal).filter_by(meal_type="LUNCH").first()
+        if lunch:
+            fb = [
+                models.Feedback(institution_id=inst.id, meal_id=lunch.id, rating=5, comment="Paneer was amazing!", sentiment="POSITIVE"),
+                models.Feedback(institution_id=inst.id, meal_id=lunch.id, rating=2, comment="Rice was undercooked", sentiment="NEGATIVE"),
+                models.Feedback(institution_id=inst.id, meal_id=lunch.id, rating=4, comment="Good meal overall", sentiment="POSITIVE"),
+                models.Feedback(institution_id=inst.id, meal_id=lunch.id, rating=3, comment="Decent, but dal was too salty", sentiment="NEUTRAL")
+            ]
+            db.add_all(fb)
+            db.commit()
+            print("Created Feedback.")
+        
     db.close()
     print("Seeding complete.")
 
