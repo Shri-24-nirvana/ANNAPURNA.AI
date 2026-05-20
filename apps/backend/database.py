@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 # Using environment variables in production, fallback to docker-compose default for local dev
 SQLALCHEMY_DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://annapurna:password@localhost:5432/annapurna_db"
+    "postgresql://annapurna:password@127.0.0.1:5433/annapurna_db"
 )
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
