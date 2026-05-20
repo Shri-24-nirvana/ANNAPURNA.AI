@@ -1,11 +1,51 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Leaf, Award } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, Leaf, Award, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { apiFetch } from "@/lib/api";
 
 export default function StudentDashboard() {
   const [lunchStatus, setLunchStatus] = useState<"ATTENDING" | "SKIPPING">("ATTENDING");
+  const [loading, setLoading] = useState(false);
+
+  // For MVP integration, we assume the first lunch meal has id = 1
+  const mealId = 1;
+
+  useEffect(() => {
+    // Fetch real status on load
+    const loadStatus = async () => {
+      try {
+        const data = await apiFetch("/meals/today");
+        if (data && data.length > 0) {
+          const lunch = data.find((m: any) => m.meal_type === "LUNCH" || m.id === mealId);
+          if (lunch && lunch.status) {
+            setLunchStatus(lunch.status as "ATTENDING" | "SKIPPING");
+          }
+        }
+      } catch (err: any) {
+        console.warn("Backend unavailable, using default local state.");
+      }
+    };
+    loadStatus();
+  }, []);
+
+  const toggleSkip = async (newStatus: "ATTENDING" | "SKIPPING") => {
+    setLoading(true);
+    try {
+      await apiFetch("/attendance/skip", {
+        method: "POST",
+        body: JSON.stringify({ meal_id: mealId, status: newStatus }),
+      });
+      setLunchStatus(newStatus);
+    } catch (err: any) {
+      console.warn("Backend unavailable. Toggling local state for demo purposes.");
+      // Fallback for demo if backend isn't up
+      setLunchStatus(newStatus);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -39,14 +79,19 @@ export default function StudentDashboard() {
         <h3 className="text-sm font-semibold text-slate-900 mb-3 uppercase tracking-wider">Today's Meals</h3>
         
         {/* Lunch Card */}
-        <Card className="border border-slate-100 shadow-sm rounded-2xl overflow-hidden bg-white mb-4">
+        <Card className="border border-slate-100 shadow-sm rounded-2xl overflow-hidden bg-white mb-4 transition-all duration-300">
           {/* Food Image Placeholder */}
-          <div className="h-32 w-full bg-[#fcecd2] relative flex items-center justify-center overflow-hidden">
-             {/* Simple shapes to mimic food illustration */}
+          <div className={`h-32 w-full relative flex items-center justify-center overflow-hidden transition-colors ${lunchStatus === 'SKIPPING' ? 'bg-slate-100 grayscale' : 'bg-[#fcecd2]'}`}>
              <div className="absolute w-24 h-24 bg-orange-300 rounded-full right-4 opacity-80"></div>
              <div className="absolute w-16 h-16 bg-white rounded-full right-8"></div>
              <div className="absolute w-20 h-20 bg-yellow-400 rounded-md left-8 rotate-12"></div>
              <div className="absolute w-10 h-10 bg-green-500 rounded-full top-4 left-20"></div>
+             
+             {lunchStatus === 'SKIPPING' && (
+                <div className="absolute inset-0 bg-white/40 backdrop-blur-[2px] flex items-center justify-center">
+                  <span className="bg-white/90 px-4 py-1.5 rounded-full text-sm font-bold text-slate-500 shadow-sm">MEAL SKIPPED</span>
+                </div>
+             )}
           </div>
           
           <CardContent className="p-5 relative">
@@ -65,22 +110,30 @@ export default function StudentDashboard() {
                 </span>
               )}
             </div>
-            <p className="text-sm text-slate-600 mb-5">Paneer Tikka, Rice, Daal, Naan</p>
+            <p className={`text-sm mb-5 ${lunchStatus === 'SKIPPING' ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+              Paneer Tikka, Rice, Daal, Naan
+            </p>
             
             {lunchStatus === "ATTENDING" ? (
               <button 
-                onClick={() => setLunchStatus("SKIPPING")}
-                className="w-full py-4 bg-[#b54a55] hover:bg-red-800 text-white rounded-xl font-semibold shadow-md transition-all flex flex-col items-center justify-center relative overflow-hidden"
+                onClick={() => toggleSkip("SKIPPING")}
+                disabled={loading}
+                className="w-full py-4 bg-[#b54a55] hover:bg-red-800 text-white rounded-xl font-semibold shadow-md transition-all flex flex-col items-center justify-center relative overflow-hidden disabled:opacity-70"
               >
-                <span>SKIP LUNCH (Optional)</span>
-                <span className="text-[10px] font-normal opacity-80 mt-0.5">Skip window closes in: 1h 15m 30s</span>
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                  <>
+                    <span>SKIP LUNCH (Optional)</span>
+                    <span className="text-[10px] font-normal opacity-80 mt-0.5">Skip window closes in: 1h 15m 30s</span>
+                  </>
+                )}
               </button>
             ) : (
               <button 
-                onClick={() => setLunchStatus("ATTENDING")}
-                className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold shadow-md transition-all"
+                onClick={() => toggleSkip("ATTENDING")}
+                disabled={loading}
+                className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold shadow-md transition-all flex items-center justify-center disabled:opacity-70"
               >
-                UNDO SKIP (Opt back in)
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "UNDO SKIP (Opt back in)"}
               </button>
             )}
           </CardContent>
