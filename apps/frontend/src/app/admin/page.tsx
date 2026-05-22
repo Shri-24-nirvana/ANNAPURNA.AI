@@ -1,163 +1,145 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
-import { CheckCircle2, Globe2 } from "lucide-react";
-
-const healthData = [
-  { time: "1:00 PM", val: 50 },
-  { time: "2:00 PM", val: 120 },
-  { time: "3:00 PM", val: 80 },
-  { time: "4:00 PM", val: 150 },
-  { time: "7:00 PM", val: 600 },
-];
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { Download, Leaf, TreePine, DollarSign, Coins, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 export default function AdminDashboard() {
+  const [stats, setStats] = useState<any>(null);
+  const [institutions, setInstitutions] = useState<any[]>([]);
+  const [trends, setTrends] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [statsData, instData, trendsData] = await Promise.all([
+          apiFetch("/admin/stats").catch(() => null),
+          apiFetch("/admin/institutions").catch(() => []),
+          apiFetch("/admin/financial-trends").catch(() => [])
+        ]);
+        setStats(statsData);
+        setInstitutions(instData);
+        setTrends(trendsData);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  if (loading) return <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>;
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900 uppercase">SUPER ADMIN COMMAND CENTER</h2>
+    <div className="max-w-7xl mx-auto space-y-6 pb-12">
+      <div className="flex justify-between items-end">
+        <div>
+          <h2 className="text-3xl font-black tracking-tight text-slate-900 uppercase">Global Headquarters</h2>
+          <p className="text-slate-500 font-medium">Cross-institution analytics and financial overview</p>
+        </div>
+        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-bold shadow-sm hover:bg-slate-50 transition-colors">
+           <Download className="h-4 w-4" /> Export Report
+        </button>
+      </div>
+
+      {/* Top Level Global Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="border-0 shadow-sm bg-gradient-to-br from-green-500 to-green-600 text-white rounded-2xl">
+          <CardContent className="pt-6">
+            <Leaf className="h-6 w-6 mb-4 opacity-80" />
+            <p className="text-sm font-bold opacity-90 uppercase tracking-wider mb-1">Total Meals Saved</p>
+            <p className="text-4xl font-black">{stats?.total_meals_saved?.toLocaleString() || 0}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-sm bg-white rounded-2xl">
+          <CardContent className="pt-6">
+            <DollarSign className="h-6 w-6 mb-4 text-[#4a7c82]" />
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-1">Money Saved (INR)</p>
+            <p className="text-4xl font-black text-slate-900">₹{stats?.total_money_saved?.toLocaleString() || 0}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-sm bg-white rounded-2xl">
+          <CardContent className="pt-6">
+            <TreePine className="h-6 w-6 mb-4 text-teal-600" />
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-1">Waste Prevented</p>
+            <p className="text-4xl font-black text-slate-900">{stats?.total_waste_prevented_kg?.toLocaleString() || 0} <span className="text-lg text-slate-400">kg</span></p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-sm bg-slate-900 text-white rounded-2xl">
+          <CardContent className="pt-6">
+            <Coins className="h-6 w-6 mb-4 opacity-80" />
+            <p className="text-sm font-bold opacity-80 uppercase tracking-wider mb-1">Total ID Scans</p>
+            <p className="text-4xl font-black">{stats?.total_scans?.toLocaleString() || 0}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Key Global Metrics & Map Container */}
-        <Card className="lg:col-span-3 shadow-sm border-slate-200 overflow-hidden">
-          <CardContent className="p-0">
-            {/* Top Metrics Bar */}
-            <div className="grid grid-cols-4 border-b border-slate-100 bg-white p-6">
-              <div>
-                <p className="text-sm font-semibold text-slate-500 mb-1">Active Institutions:</p>
-                <p className="text-3xl font-bold text-slate-900">32</p>
-              </div>
-              <div className="border-l border-slate-100 pl-6">
-                <p className="text-sm font-semibold text-slate-500 mb-1">Total Registered Users:</p>
-                <p className="text-3xl font-bold text-slate-900">1.2M+</p>
-              </div>
-              <div className="border-l border-slate-100 pl-6">
-                <p className="text-sm font-semibold text-slate-500 mb-1">Global Waste Reduction:</p>
-                <p className="text-3xl font-bold text-slate-900">450 Tons <span className="text-sm font-normal text-slate-500">(YTD)</span></p>
-              </div>
-              <div className="border-l border-slate-100 pl-6">
-                <p className="text-sm font-semibold text-slate-500 mb-1">Platform Uptime:</p>
-                <p className="text-3xl font-bold text-slate-900">99.98%</p>
-              </div>
-            </div>
-
-            {/* Map Area */}
-            <div className="bg-slate-50 p-6 flex flex-col md:flex-row justify-between items-center relative">
-               <div className="absolute top-4 right-4 z-10">
-                  <span className="px-2.5 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold flex items-center gap-1 border border-green-200 shadow-sm">
-                    <CheckCircle2 className="h-3 w-3" /> ALL SYSTEMS NORMAL
-                  </span>
-               </div>
-               
-               <div className="w-full h-[300px] flex flex-col">
-                 <h4 className="text-sm font-bold text-slate-700 mb-4">Multi-Tenant Global Map</h4>
-                 {/* CSS Art Map Placeholder */}
-                 <div className="flex-1 bg-blue-50/50 rounded-xl border border-slate-200 relative overflow-hidden flex items-center justify-center">
-                    <Globe2 className="h-64 w-64 text-slate-200 absolute opacity-50" />
-                    {/* Simulated Map Markers */}
-                    <div className="absolute top-[30%] left-[20%] w-3 h-3 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)] animate-pulse"></div>
-                    <div className="absolute top-[40%] left-[25%] w-3 h-3 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)] animate-pulse"></div>
-                    <div className="absolute top-[35%] left-[45%] w-3 h-3 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)] animate-pulse"></div>
-                    <div className="absolute top-[25%] left-[55%] w-3 h-3 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)] animate-pulse"></div>
-                    <div className="absolute top-[45%] left-[75%] w-3 h-3 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)] animate-pulse"></div>
-                    <p className="text-slate-400 font-medium z-10 bg-white/80 px-4 py-2 rounded-lg text-sm">Interactive Map View</p>
-                 </div>
-               </div>
-            </div>
+        {/* Financial Trends Graph */}
+        <Card className="col-span-1 lg:col-span-2 border-0 shadow-sm rounded-2xl">
+          <CardHeader className="border-b border-slate-100 pb-4">
+            <CardTitle className="text-base font-bold text-slate-900 uppercase tracking-wide">Financial Savings Trend (6 Months)</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6 h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trends} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
+                <YAxis tickFormatter={(val) => `₹${val/1000}k`} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number) => [`₹${value.toLocaleString()}`, "Saved"]}
+                />
+                <Line type="monotone" dataKey="saved" stroke="#4a7c82" strokeWidth={4} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 8 }} />
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Top Client Performance */}
-        <Card className="lg:col-span-2 shadow-sm border-slate-200">
-           <CardHeader className="pb-2 border-b border-slate-100">
-            <CardTitle className="text-base font-semibold">Top Client Performance</CardTitle>
+        {/* Multi-Institution Table */}
+        <Card className="col-span-1 border-0 shadow-sm rounded-2xl flex flex-col">
+          <CardHeader className="border-b border-slate-100 pb-4">
+            <CardTitle className="text-base font-bold text-slate-900 uppercase tracking-wide">Institution Breakdown</CardTitle>
           </CardHeader>
-          <CardContent className="pt-4">
+          <CardContent className="p-0 flex-1 overflow-auto max-h-[400px]">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Institution</th>
-                  <th className="px-4 py-3 font-medium">Conversion Rate</th>
-                  <th className="px-4 py-3 font-medium">Waste Savings</th>
-                  <th className="px-4 py-3 font-medium">Risk Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-slate-50">
-                  <td className="px-4 py-4 font-medium text-slate-900">Major Client University System</td>
-                  <td className="px-4 py-4">70.36%</td>
-                  <td className="px-4 py-4">450 Tons</td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-1">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      <div className="w-12 h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-green-500 w-[90%]"></div></div>
-                    </div>
-                  </td>
-                </tr>
-                <tr className="border-b border-slate-50 bg-slate-50/50">
-                  <td className="px-4 py-4 font-medium text-slate-900">Major State University System</td>
-                  <td className="px-4 py-4">60.75%</td>
-                  <td className="px-4 py-4">450 Tons</td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-1">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      <div className="w-12 h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-orange-400 w-[60%]"></div></div>
-                    </div>
-                  </td>
-                </tr>
-                 <tr>
-                  <td className="px-4 py-4 font-medium text-slate-900">Client State University System</td>
-                  <td className="px-4 py-4">70.75%</td>
-                  <td className="px-4 py-4">450 Tons</td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-1">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      <div className="w-12 h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-yellow-400 w-[75%]"></div></div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
+               <thead className="bg-slate-50 text-slate-500 uppercase text-xs sticky top-0">
+                  <tr>
+                    <th className="px-5 py-3 font-bold">Campus</th>
+                    <th className="px-5 py-3 font-bold text-right">Saved (₹)</th>
+                  </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-100">
+                  {institutions.map((inst: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-5 py-4">
+                          <p className="font-bold text-slate-900">{inst.name}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`h-2 w-2 rounded-full ${inst.health === 'OPTIMAL' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
+                            <span className="text-[10px] text-slate-500 uppercase font-bold">{inst.health}</span>
+                          </div>
+                       </td>
+                       <td className="px-5 py-4 text-right font-black text-[#4a7c82]">
+                          ₹{inst.money_saved.toLocaleString()}
+                       </td>
+                    </tr>
+                  ))}
+                  {institutions.length === 0 && (
+                     <tr><td colSpan={2} className="px-5 py-8 text-center text-slate-500">No institutions found.</td></tr>
+                  )}
+               </tbody>
             </table>
           </CardContent>
         </Card>
-
-        {/* System Health */}
-        <Card className="shadow-sm border-slate-200">
-           <CardHeader className="pb-2 flex flex-row items-center justify-between border-b border-slate-100">
-            <div>
-              <CardTitle className="text-base font-semibold">System Health</CardTitle>
-              <p className="text-xs text-slate-500 mt-1">(Framer Motion interaction visualization)</p>
-            </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">OPTIMAL</span>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <div className="flex justify-between items-end mb-4">
-              <span className="text-sm font-medium text-slate-700">AI Model Retraining Status:</span>
-              <span className="text-sm font-bold text-green-600">Optimal</span>
-            </div>
-            
-            <div className="h-[150px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={healthData}>
-                  <defs>
-                    <linearGradient id="colorHealth" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} />
-                  <YAxis hide />
-                  <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-                  <Area type="monotone" dataKey="val" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorHealth)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
+        
       </div>
     </div>
   );

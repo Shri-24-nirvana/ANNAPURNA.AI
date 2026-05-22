@@ -108,6 +108,46 @@ def seed_db():
             db.add_all(fb)
             db.commit()
             print("Created Feedback.")
+            
+    # 6. Add Medical Campus
+    med_inst = db.query(models.Institution).filter_by(name="Medical Campus").first()
+    if not med_inst:
+        med_inst = models.Institution(
+            name="Medical Campus",
+            subscription_plan="Premium",
+            total_students=1500,
+            onboarding_status="Completed"
+        )
+        db.add(med_inst)
+        db.commit()
+        db.refresh(med_inst)
+        
+        # Add meal
+        med_lunch = models.Meal(
+            institution_id=med_inst.id,
+            meal_type="LUNCH",
+            menu_items="Fish Curry, Rice",
+            scheduled_time=today.replace(hour=12, minute=30, second=0, microsecond=0),
+            predicted_count=1300
+        )
+        db.add(med_lunch)
+        db.commit()
+        db.refresh(med_lunch)
+        
+        student = db.query(models.User).filter_by(email="student@example.com").first()
+        if student:
+            # Add mock skips
+            skips = []
+            for i in range(120):
+                skip = models.Attendance(
+                    user_id=student.id, 
+                    meal_id=med_lunch.id,
+                    status="SKIPPING"
+                )
+                skips.append(skip)
+            db.add_all(skips)
+            db.commit()
+            print("Created Medical Campus data.")
         
     db.close()
     print("Seeding complete.")
