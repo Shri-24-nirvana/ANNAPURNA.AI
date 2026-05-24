@@ -96,7 +96,7 @@ export default function AdminDashboard() {
                 <YAxis tickFormatter={(val) => `₹${val/1000}k`} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
                 <Tooltip 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => [`₹${value.toLocaleString()}`, "Saved"]}
+                  formatter={(value: any) => [`₹${Number(value).toLocaleString()}`, "Saved"]}
                 />
                 <Line type="monotone" dataKey="saved" stroke="#4a7c82" strokeWidth={4} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 8 }} />
               </LineChart>

@@ -124,6 +124,33 @@ def toggle_skip_meal(data: AttendanceUpdate, current_user: models.User = Depends
     db.commit()
     return {"message": "Attendance updated successfully", "status": data.status}
 
+class ScanRequest(BaseModel):
+    meal_id: int
+
+@app.post("/attendance/scan")
+def scan_meal(data: ScanRequest, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    attendance = db.query(models.Attendance).filter(
+        models.Attendance.user_id == current_user.id,
+        models.Attendance.meal_id == data.meal_id
+    ).first()
+    
+    if attendance:
+        attendance.status = "SCANNED"
+        attendance.updated_at = datetime.now(timezone.utc)
+    else:
+        new_attendance = models.Attendance(
+            user_id=current_user.id,
+            meal_id=data.meal_id,
+            status="SCANNED"
+        )
+        db.add(new_attendance)
+        
+    db.commit()
+    return {"message": "Access granted", "status": "SCANNED"}
+
 class FeedbackCreate(BaseModel):
     meal_id: int
     rating: int
