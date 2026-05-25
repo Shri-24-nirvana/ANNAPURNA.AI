@@ -217,7 +217,41 @@ export default function StudentDashboard() {
     }
   };
 
-  const activeMeal = meals.find(m => isServingTime(m.meal_type)) || meals.find(m => m.meal_type === "LUNCH");
+  const getActiveMeal = () => {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const timeVal = hours + minutes / 60;
+
+    // 1. Check if we are inside any serving window
+    let activeType: "BREAKFAST" | "LUNCH" | "DINNER" | null = null;
+    if (timeVal >= 8 && timeVal < 11) {
+      activeType = "BREAKFAST";
+    } else if (timeVal >= 11.5 && timeVal < 16.5) {
+      activeType = "LUNCH";
+    } else if (timeVal >= 18.5 && timeVal < 22.5) {
+      activeType = "DINNER";
+    }
+
+    if (activeType) {
+      const match = meals.find(m => m.meal_type === activeType);
+      if (match) return match;
+    }
+
+    // 2. If outside serving windows, determine the upcoming meal
+    let upcomingType: "BREAKFAST" | "LUNCH" | "DINNER" = "LUNCH";
+    if (timeVal >= 22.5 || timeVal < 11) {
+      upcomingType = "BREAKFAST";
+    } else if (timeVal >= 11 && timeVal < 16.5) {
+      upcomingType = "LUNCH";
+    } else {
+      upcomingType = "DINNER";
+    }
+
+    return meals.find(m => m.meal_type === upcomingType) || meals.find(m => m.meal_type === "LUNCH") || meals[0];
+  };
+
+  const activeMeal = getActiveMeal();
   const otherMeals = meals.filter(m => m.id !== activeMeal?.id);
 
   return (
