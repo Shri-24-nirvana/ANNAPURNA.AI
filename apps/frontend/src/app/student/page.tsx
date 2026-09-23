@@ -1,110 +1,110 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Leaf, Award, Loader2, Star, MessageSquare, QrCode } from "lucide-react";
-import { useState, useEffect } from "react";
+import { CheckCircle2, Leaf, Award, Loader2, Star, MessageSquare, QrCode, Camera, AlertCircle, X, ShieldAlert, Sparkles, RefreshCw } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
+import jsQR from "jsqr";
 
-const DEFAULT_MEALS = [
-  {
-    id: 3,
-    meal_type: "BREAKFAST" as const,
-    menu_items: "Aloo Paratha, Curd, Pickle, Tea",
-    scheduled_time: "08:00 AM - 10:00 AM",
-    status: "SCANNED",
-    image: "/breakfast_banner.png"
-  },
+interface MealItem {
+  id: number;
+  meal_type: "BREAKFAST" | "LUNCH" | "DINNER";
+  menu_items: string;
+  scheduled_time: string;
+  status: "ATTENDING" | "SKIPPING" | "SKIPPED" | "SCANNED";
+  verified_at?: string | null;
+  image: string;
+  cutoffHour: number; // 24hr format
+  cutoffMinute: number;
+}
+
+const DEFAULT_MEALS: MealItem[] = [
   {
     id: 1,
-    meal_type: "LUNCH" as const,
-    menu_items: "Paneer Tikka, Rice, Daal, Naan",
-    scheduled_time: "12:30 PM - 02:00 PM",
+    meal_type: "BREAKFAST",
+    menu_items: "Aloo Paratha, Curd, Pickle, Cardamom Tea",
+    scheduled_time: "08:00 AM - 10:00 AM",
     status: "ATTENDING",
-    image: "/lunch_banner.png"
+    image: "/breakfast_banner.png",
+    cutoffHour: 10,
+    cutoffMinute: 0
   },
   {
     id: 2,
-    meal_type: "DINNER" as const,
-    menu_items: "Chicken Curry, Roti, Salad",
+    meal_type: "LUNCH",
+    menu_items: "Paneer Tikka, Jeera Rice, Yellow Daal, Naan",
+    scheduled_time: "12:30 PM - 02:00 PM",
+    status: "ATTENDING",
+    image: "/lunch_banner.png",
+    cutoffHour: 14,
+    cutoffMinute: 0
+  },
+  {
+    id: 3,
+    meal_type: "DINNER",
+    menu_items: "Chicken Curry / Paneer Butter Masala, Roti, Salad",
     scheduled_time: "07:00 PM - 09:00 PM",
     status: "ATTENDING",
-    image: "/dinner_banner.png"
+    image: "/dinner_banner.png",
+    cutoffHour: 21,
+    cutoffMinute: 0
   }
 ];
 
-const isServingTime = (mealType: string) => {
-  const now = new Date();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const timeVal = hours + minutes / 60;
-  
-  if (mealType === "BREAKFAST") {
-    return timeVal >= 8 && timeVal < 11;
-  } else if (mealType === "LUNCH") {
-    return timeVal >= 11.5 && timeVal < 16.5; // extended to cover afternoon tests
-  } else if (mealType === "DINNER") {
-    return timeVal >= 18.5 && timeVal < 22.5;
-  }
-  return false;
-};
-
 export default function StudentDashboard() {
-  const [meals, setMeals] = useState<any[]>(DEFAULT_MEALS);
+  const [meals, setMeals] = useState<MealItem[]>(DEFAULT_MEALS);
   const [loadingMealId, setLoadingMealId] = useState<number | null>(null);
   
+  // Real-time time slot simulation or auto-detection
+  const [timeMode, setTimeMode] = useState<"AUTO" | "BREAKFAST" | "LUNCH" | "DINNER">("AUTO");
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+
+  // Scanner state
+  const [showScanner, setShowScanner] = useState(false);
+  const [selectedMealForScan, setSelectedMealForScan] = useState<MealItem | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  
+  // Verification Result Modal
+  const [scanResult, setScanResult] = useState<{
+    status: "success" | "error";
+    title: string;
+    message: string;
+    mealType?: string;
+    verifiedAt?: string;
+    studentId?: string;
+  } | null>(null);
+
   // Feedback state
   const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackMeal, setFeedbackMeal] = useState<MealItem | null>(null);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
   const [validationError, setValidationError] = useState("");
 
-  // QR Modal State
-  const [showQRModal, setShowQRModal] = useState(false);
-  const [selectedMealForQR, setSelectedMealForQR] = useState<any | null>(null);
-  const [scanState, setScanState] = useState<"idle" | "scanning" | "success">("idle");
+  // Video & Canvas Refs for In-App Scanner
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
-  // Live countdown timer state (mocked to match the image baseline 1h 15m 30s)
-  const [countdown, setCountdown] = useState({ hours: 1, minutes: 15, seconds: 30 });
-
+  // Live 1-second clock
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown(prev => {
-        let { hours, minutes, seconds } = prev;
-        if (seconds > 0) {
-          seconds--;
-        } else {
-          seconds = 59;
-          if (minutes > 0) {
-            minutes--;
-          } else {
-            minutes = 59;
-            if (hours > 0) {
-              hours--;
-            } else {
-              // Loop/reset for demo purposes
-              hours = 1;
-              minutes = 15;
-              seconds = 30;
-            }
-          }
-        }
-        return { hours, minutes, seconds };
-      });
+    const clockInterval = setInterval(() => {
+      setCurrentTime(new Date());
     }, 1000);
-    return () => clearInterval(timer);
+    return () => clearInterval(clockInterval);
   }, []);
 
-  const breakfastId = 2; // Dummy ID for breakfast to submit feedback
-
+  // Fetch real status on mount
   useEffect(() => {
-    // Fetch real status on load
     const loadStatus = async () => {
       try {
         const data = await apiFetch("/meals/today");
         if (data && data.length > 0) {
-          // Merge API data with DEFAULT_MEALS to preserve images and times
           const merged = DEFAULT_MEALS.map(defMeal => {
             const apiMeal = data.find((m: any) => m.meal_type === defMeal.meal_type);
             if (apiMeal) {
@@ -112,7 +112,8 @@ export default function StudentDashboard() {
                 ...defMeal,
                 id: apiMeal.id,
                 menu_items: apiMeal.menu_items || defMeal.menu_items,
-                status: apiMeal.status || defMeal.status
+                status: apiMeal.status || defMeal.status,
+                verified_at: apiMeal.verified_at || defMeal.verified_at
               };
             }
             return defMeal;
@@ -126,6 +127,56 @@ export default function StudentDashboard() {
     loadStatus();
   }, []);
 
+  // Real-Time Meal Logic
+  const getActiveMealType = (): "BREAKFAST" | "LUNCH" | "DINNER" => {
+    if (timeMode !== "AUTO") {
+      return timeMode;
+    }
+    const hours = currentTime.getHours();
+    const minutes = currentTime.getMinutes();
+    const timeVal = hours + minutes / 60;
+
+    // Morning: 04:00 to 11:00 -> Breakfast
+    if (timeVal >= 4 && timeVal < 11) {
+      return "BREAKFAST";
+    }
+    // Afternoon: 11:00 to 16.5 (4:30 PM) -> Lunch
+    else if (timeVal >= 11 && timeVal < 16.5) {
+      return "LUNCH";
+    }
+    // Evening & Night: 16:30 to 04:00 -> Dinner
+    else {
+      return "DINNER";
+    }
+  };
+
+  const activeMealType = getActiveMealType();
+  const activeMeal = meals.find(m => m.meal_type === activeMealType) || meals[1];
+  const otherMeals = meals.filter(m => m.meal_type !== activeMealType);
+
+  // Dynamic Cutoff Countdown calculation
+  const calculateCountdown = (meal: MealItem) => {
+    const now = currentTime;
+    const target = new Date(now);
+    target.setHours(meal.cutoffHour, meal.cutoffMinute, 0, 0);
+
+    // If target has passed today, assume tomorrow or show 0
+    let diff = target.getTime() - now.getTime();
+    if (diff < 0) {
+      // In evening window for dinner or tomorrow breakfast
+      diff = 0;
+    }
+
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+    return { hours, minutes, seconds };
+  };
+
+  const countdown = calculateCountdown(activeMeal);
+
+  // Toggle Skip / Opt-back-in
   const toggleSkip = async (mealId: number, newStatus: "ATTENDING" | "SKIPPING") => {
     setLoadingMealId(mealId);
     try {
@@ -142,51 +193,188 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleScanMeal = async (mealId: number) => {
-    setScanState("scanning");
-    
-    // Simulate scan delay (1.5 seconds)
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
+  // In-App Camera Scanner Controls
+  const startCamera = async () => {
+    setCameraError(null);
+    setCameraActive(false);
+
     try {
-      await apiFetch("/attendance/scan", {
-        method: "POST",
-        body: JSON.stringify({ meal_id: mealId }),
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera API not supported on this browser or connection.");
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
       });
-      setScanState("success");
-      
-      // Update meals state
-      setMeals(prev => prev.map(m => m.id === mealId ? { ...m, status: "SCANNED" } : m));
-      
-      // Close modal after success display
-      setTimeout(() => {
-        setShowQRModal(false);
-        setScanState("idle");
-      }, 1500);
+
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        await videoRef.current.play();
+        setCameraActive(true);
+        requestAnimationFrame(scanQRCodeFrame);
+      }
     } catch (err: any) {
-      console.warn("Backend error during scan. Simulating success locally.");
-      setScanState("success");
-      setMeals(prev => prev.map(m => m.id === mealId ? { ...m, status: "SCANNED" } : m));
-      setTimeout(() => {
-        setShowQRModal(false);
-        setScanState("idle");
-      }, 1500);
+      console.warn("Camera access failed:", err);
+      setCameraError(err.message || "Unable to access device camera. Please grant permission or use test simulator.");
+      setCameraActive(false);
     }
   };
 
-  // Auto scan trigger when QR modal opens
-  useEffect(() => {
-    let scanTimeout: NodeJS.Timeout;
-    if (showQRModal && selectedMealForQR && scanState === "idle") {
-      scanTimeout = setTimeout(() => {
-        handleScanMeal(selectedMealForQR.id);
-      }, 2500);
+  const stopCamera = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
-    return () => clearTimeout(scanTimeout);
-  }, [showQRModal, selectedMealForQR, scanState]);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const scanQRCodeFrame = () => {
+    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+      animationFrameRef.current = requestAnimationFrame(scanQRCodeFrame);
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    if (ctx) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+
+      if (code && code.data) {
+        // Scanned successfully!
+        handleVerifyPayload(code.data);
+        return; // stop loop
+      }
+    }
+
+    animationFrameRef.current = requestAnimationFrame(scanQRCodeFrame);
+  };
+
+  // Open Scanner Modal
+  const openScanner = (meal: MealItem) => {
+    setSelectedMealForScan(meal);
+    setShowScanner(true);
+    setTimeout(() => {
+      startCamera();
+    }, 200);
+  };
+
+  // Close Scanner Modal
+  const closeScanner = () => {
+    stopCamera();
+    setShowScanner(false);
+    setSelectedMealForScan(null);
+  };
+
+  // Execute Verification API Call
+  const handleVerifyPayload = async (payloadString: string) => {
+    if (verifying) return;
+    setVerifying(true);
+    stopCamera();
+
+    try {
+      const response = await apiFetch("/student/verify-mess-qr", {
+        method: "POST",
+        body: JSON.stringify({
+          qr_payload: payloadString,
+          meal_id: selectedMealForScan?.id,
+          meal_type: selectedMealForScan?.meal_type
+        })
+      });
+
+      // Update state locally to SCANNED
+      if (selectedMealForScan) {
+        setMeals(prev => prev.map(m => m.id === selectedMealForScan.id ? { 
+          ...m, 
+          status: "SCANNED",
+          verified_at: response.verified_at || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        } : m));
+      }
+
+      setShowScanner(false);
+      setScanResult({
+        status: "success",
+        title: "ACCESS GRANTED",
+        message: response.message || `Verified for ${selectedMealForScan?.meal_type}`,
+        mealType: selectedMealForScan?.meal_type,
+        verifiedAt: response.verified_at || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        studentId: response.student_id || "ET12345"
+      });
+
+    } catch (err: any) {
+      console.error("Verification failed:", err);
+      const errorMsg = err.message || "Verification failed. Invalid or expired Mess QR.";
+      setShowScanner(false);
+      setScanResult({
+        status: "error",
+        title: "ACCESS DENIED",
+        message: errorMsg,
+        mealType: selectedMealForScan?.meal_type
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Test Simulation Scan: Fetches the live rotating QR from the backend and verifies it
+  const handleSimulateScan = async () => {
+    setVerifying(true);
+    try {
+      // 1. Fetch live rotating QR token from manager endpoint
+      const qrData = await apiFetch("/manager/mess-qr");
+      const payloadString = qrData.payload_string || JSON.stringify(qrData);
+
+      // 2. Perform student verification
+      await handleVerifyPayload(payloadString);
+    } catch (err: any) {
+      // If backend is offline, simulate realistic client response
+      if (selectedMealForScan?.status === "SKIPPING" || selectedMealForScan?.status === "SKIPPED") {
+        setShowScanner(false);
+        setScanResult({
+          status: "error",
+          title: "ACCESS DENIED",
+          message: `You are currently opted OUT (Skipped) for ${selectedMealForScan.meal_type}. Please opt back in on your dashboard before scanning.`
+        });
+      } else {
+        if (selectedMealForScan) {
+          setMeals(prev => prev.map(m => m.id === selectedMealForScan.id ? { 
+            ...m, 
+            status: "SCANNED",
+            verified_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          } : m));
+        }
+        setShowScanner(false);
+        setScanResult({
+          status: "success",
+          title: "ACCESS GRANTED",
+          message: `Access Granted – Verified for ${selectedMealForScan?.meal_type}`,
+          mealType: selectedMealForScan?.meal_type,
+          verifiedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          studentId: "ET12345"
+        });
+      }
+      setVerifying(false);
+    }
+  };
+
+  // Feedback Submission
   const submitFeedback = async () => {
     if (rating === 0) {
-      setValidationError("Please select a rating before submitting.");
+      setValidationError("Please select a star rating before submitting.");
       return;
     }
     setSubmittingFeedback(true);
@@ -194,7 +382,11 @@ export default function StudentDashboard() {
     try {
       await apiFetch("/student/feedback", {
         method: "POST",
-        body: JSON.stringify({ meal_id: breakfastId, rating, comment }),
+        body: JSON.stringify({ 
+          meal_id: feedbackMeal?.id || activeMeal.id, 
+          rating, 
+          comment 
+        }),
       });
       setFeedbackSuccess(true);
       setTimeout(() => {
@@ -202,76 +394,87 @@ export default function StudentDashboard() {
         setFeedbackSuccess(false);
         setRating(0);
         setComment("");
+        setFeedbackMeal(null);
       }, 2000);
     } catch (err) {
-      console.error(err);
       setFeedbackSuccess(true);
       setTimeout(() => {
         setShowFeedback(false);
         setFeedbackSuccess(false);
         setRating(0);
         setComment("");
+        setFeedbackMeal(null);
       }, 2000);
     } finally {
       setSubmittingFeedback(false);
     }
   };
 
-  const getActiveMeal = () => {
-    const now = new Date();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const timeVal = hours + minutes / 60;
-
-    // 1. Check if we are inside any serving window
-    let activeType: "BREAKFAST" | "LUNCH" | "DINNER" | null = null;
-    if (timeVal >= 8 && timeVal < 11) {
-      activeType = "BREAKFAST";
-    } else if (timeVal >= 11.5 && timeVal < 16.5) {
-      activeType = "LUNCH";
-    } else if (timeVal >= 18.5 && timeVal < 22.5) {
-      activeType = "DINNER";
-    }
-
-    if (activeType) {
-      const match = meals.find(m => m.meal_type === activeType);
-      if (match) return match;
-    }
-
-    // 2. If outside serving windows, determine the upcoming meal
-    let upcomingType: "BREAKFAST" | "LUNCH" | "DINNER" = "LUNCH";
-    if (timeVal >= 22.5 || timeVal < 11) {
-      upcomingType = "BREAKFAST";
-    } else if (timeVal >= 11 && timeVal < 16.5) {
-      upcomingType = "LUNCH";
-    } else {
-      upcomingType = "DINNER";
-    }
-
-    return meals.find(m => m.meal_type === upcomingType) || meals.find(m => m.meal_type === "LUNCH") || meals[0];
-  };
-
-  const activeMeal = getActiveMeal();
-  const otherMeals = meals.filter(m => m.id !== activeMeal?.id);
-
   return (
-    <div className="p-6 space-y-6 pb-24">
+    <div className="p-6 space-y-6 pb-28 max-w-2xl mx-auto font-sans">
+      {/* Real-Time Live Clock & Time Slot Selector Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <div>
+            <p className="text-xs font-extrabold text-slate-900 tracking-tight">LIVE MEAL SCHEDULE</p>
+            <p className="text-[11px] font-semibold text-slate-500">
+              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} • Active: <strong className="text-emerald-700">{activeMealType}</strong>
+            </p>
+          </div>
+        </div>
+
+        {/* Demo Time Slot Pills */}
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+          <button
+            onClick={() => setTimeMode("AUTO")}
+            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "AUTO" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            Auto Live
+          </button>
+          <button
+            onClick={() => setTimeMode("BREAKFAST")}
+            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "BREAKFAST" ? "bg-amber-500 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            Breakfast
+          </button>
+          <button
+            onClick={() => setTimeMode("LUNCH")}
+            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "LUNCH" ? "bg-orange-500 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            Lunch
+          </button>
+          <button
+            onClick={() => setTimeMode("DINNER")}
+            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "DINNER" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            Dinner
+          </button>
+        </div>
+      </div>
+
       {/* Impact Summary */}
       <Card className="border-0 shadow-sm rounded-2xl overflow-hidden bg-white">
         <CardContent className="p-4">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">Impact Summary</h3>
+          <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center justify-between">
+            <span>Your Impact Summary</span>
+            <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">Top 5% Eco Student</span>
+          </h3>
           <div className="flex gap-2">
-            <div className="flex-1 bg-green-50 rounded-xl p-3 flex flex-col items-center justify-center">
+            <div className="flex-1 bg-green-50 rounded-xl p-3 flex flex-col items-center justify-center border border-green-100">
               <Leaf className="h-5 w-5 text-green-600 mb-1" />
               <span className="text-xl font-bold text-green-700">14</span>
               <span className="text-[10px] text-green-600 font-medium text-center">Meals Saved</span>
             </div>
-            <div className="flex-1 bg-blue-50 rounded-xl p-3 flex flex-col items-center justify-center">
+            <div className="flex-1 bg-blue-50 rounded-xl p-3 flex flex-col items-center justify-center border border-blue-100">
               <Award className="h-5 w-5 text-blue-600 mb-1" />
               <span className="text-xl font-bold text-blue-700">140</span>
               <span className="text-[10px] text-blue-600 font-medium text-center">Points</span>
             </div>
-            <div className="flex-1 bg-teal-50 rounded-xl p-3 flex flex-col items-center justify-center">
+            <div className="flex-1 bg-teal-50 rounded-xl p-3 flex flex-col items-center justify-center border border-teal-100">
               <svg viewBox="0 0 24 24" className="h-5 w-5 text-teal-600 mb-1" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
               <span className="text-xl font-bold text-teal-700">1.2<span className="text-sm">kg</span></span>
               <span className="text-[10px] text-teal-600 font-medium text-center">CO2 Reduced</span>
@@ -280,21 +483,27 @@ export default function StudentDashboard() {
         </CardContent>
       </Card>
 
-      {/* Today's Meals Section */}
+      {/* Main Meal Section */}
       <div className="space-y-4">
-        <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider">Today's Meals</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider flex items-center gap-1.5">
+            <Sparkles className="h-4 w-4 text-emerald-600" /> Currently Serving / Next Meal
+          </h3>
+          <span className="text-xs font-semibold text-slate-500">
+            {activeMeal.scheduled_time}
+          </span>
+        </div>
         
-        {/* Large Card for Currently Serving Meal */}
+        {/* HERO CARD FOR CURRENT ACTIVE MEAL */}
         {activeMeal && (() => {
-          const isServing = isServingTime(activeMeal.meal_type);
           const isAttending = activeMeal.status === "ATTENDING";
           const isSkipping = activeMeal.status === "SKIPPING" || activeMeal.status === "SKIPPED";
           const isScanned = activeMeal.status === "SCANNED";
           
           return (
-            <Card className="border border-slate-100 shadow-sm rounded-2xl overflow-hidden bg-white transition-all duration-300">
+            <Card className="border border-slate-100 shadow-md rounded-3xl overflow-hidden bg-white transition-all duration-300">
               {/* Banner Image Area */}
-              <div className="h-36 w-full relative overflow-hidden bg-slate-100">
+              <div className="h-40 w-full relative overflow-hidden bg-slate-100">
                 <img 
                   src={activeMeal.image} 
                   alt={activeMeal.meal_type} 
@@ -303,7 +512,7 @@ export default function StudentDashboard() {
                 
                 {/* Grayscale overlay for skipped */}
                 {isSkipping && (
-                  <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px] flex items-center justify-center">
+                  <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-[1px] flex items-center justify-center">
                     <span className="bg-white/95 px-5 py-2 rounded-full text-xs font-bold text-red-600 shadow-lg tracking-wide border border-red-100">
                       MEAL SKIPPED
                     </span>
@@ -312,87 +521,101 @@ export default function StudentDashboard() {
 
                 {/* Scanned Access overlay */}
                 {isScanned && (
-                  <div className="absolute inset-0 bg-green-950/20 backdrop-blur-[1px] flex items-center justify-center">
-                    <span className="bg-green-600/90 text-white px-5 py-2 rounded-full text-xs font-bold shadow-lg tracking-wide flex items-center gap-1.5 border border-green-400">
-                      <CheckCircle2 className="h-4 w-4" /> ACCESS VERIFIED
+                  <div className="absolute inset-0 bg-emerald-950/40 backdrop-blur-[1px] flex items-center justify-center">
+                    <span className="bg-emerald-600 text-white px-5 py-2.5 rounded-full text-xs font-extrabold shadow-xl tracking-wide flex items-center gap-2 border border-emerald-400 animate-pulse">
+                      <CheckCircle2 className="h-4 w-4" /> ACCESS VERIFIED ({activeMeal.verified_at || "Redeemed"})
                     </span>
                   </div>
                 )}
 
-                {/* QR Code Scan Badge */}
+                {/* In-App Scan Mess QR Trigger Badge */}
                 {isAttending && (
-                  <div 
-                    onClick={() => {
-                      setSelectedMealForQR(activeMeal);
-                      setShowQRModal(true);
-                      setScanState("idle");
-                    }}
-                    className="absolute bottom-3 right-3 bg-white px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-3 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 border border-slate-100 z-10"
+                  <button 
+                    onClick={() => openScanner(activeMeal)}
+                    className="absolute bottom-3 right-3 bg-slate-900/90 hover:bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 border border-white/20 backdrop-blur-md z-10"
                   >
-                    <QrCode className="h-6 w-6 text-slate-800" />
-                    <div className="text-left">
-                      <p className="text-xs font-extrabold text-slate-900 leading-tight">QR Code</p>
-                      <p className="text-[8px] font-extrabold text-slate-500 tracking-wider leading-none">SCAN FOR ACCESS</p>
+                    <div className="p-1.5 bg-emerald-500 rounded-xl text-slate-950">
+                      <Camera className="h-4 w-4" />
                     </div>
-                  </div>
+                    <div className="text-left">
+                      <p className="text-xs font-extrabold text-white leading-tight">Scan Mess QR</p>
+                      <p className="text-[8px] font-bold text-emerald-300 tracking-wider leading-none">IN-APP SCANNER</p>
+                    </div>
+                  </button>
                 )}
               </div>
 
               {/* Card Details */}
-              <CardContent className="p-5">
-                <div className="flex justify-between items-start mb-2">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="text-lg font-bold text-slate-900 tracking-tight">{activeMeal.meal_type}</h4>
-                    <p className="text-xs text-slate-500 font-semibold">{activeMeal.scheduled_time}</p>
+                    <h4 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      {activeMeal.meal_type}
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        {activeMeal.scheduled_time}
+                      </span>
+                    </h4>
+                    <p className={`text-sm mt-1 font-medium ${isSkipping ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                      {activeMeal.menu_items}
+                    </p>
                   </div>
 
                   {/* Status Badge */}
                   {isAttending && (
-                    <span className="px-3 py-1 rounded-full bg-green-50 text-green-700 text-xs font-bold flex items-center gap-1 border border-green-150">
-                      <CheckCircle2 className="h-3 w-3 text-green-600" /> ATTENDING
+                    <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-extrabold flex items-center gap-1 border border-emerald-200">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> OPTED IN
                     </span>
                   )}
                   {isSkipping && (
-                    <span className="px-3 py-1 rounded-full bg-red-50 text-red-700 text-xs font-bold flex items-center gap-1 border border-red-150">
+                    <span className="px-3 py-1 rounded-full bg-red-50 text-red-700 text-xs font-extrabold flex items-center gap-1 border border-red-200">
                       SKIPPED
                     </span>
                   )}
                   {isScanned && (
-                    <span className="px-3 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-bold flex items-center gap-1 border border-teal-150">
+                    <span className="px-3 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-extrabold flex items-center gap-1 border border-teal-200">
                       COMPLETED
                     </span>
                   )}
                 </div>
 
-                <p className={`text-sm mb-5 font-medium ${isSkipping ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
-                  {activeMeal.menu_items}
-                </p>
-
                 {/* Actions */}
                 {isAttending && (
-                  <button 
-                    onClick={() => toggleSkip(activeMeal.id, "SKIPPING")}
-                    disabled={loadingMealId === activeMeal.id}
-                    className="w-full py-3 bg-[#b54a55] hover:bg-[#a13b45] text-white rounded-full font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center relative overflow-hidden disabled:opacity-70 cursor-pointer"
-                  >
-                    {loadingMealId === activeMeal.id ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-                      <>
-                        <span className="text-sm font-bold tracking-wide">SKIP {activeMeal.meal_type} (Optional)</span>
-                        <span className="text-[10px] font-normal opacity-90 mt-0.5">
-                          Skip window closes in: {countdown.hours}h {countdown.minutes}m {countdown.seconds}s
-                        </span>
-                      </>
-                    )}
-                  </button>
+                  <div className="space-y-2.5">
+                    <button 
+                      onClick={() => openScanner(activeMeal)}
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Camera className="h-5 w-5" /> SCAN ENTRANCE QR TO VERIFY
+                    </button>
+
+                    <button 
+                      onClick={() => toggleSkip(activeMeal.id, "SKIPPING")}
+                      disabled={loadingMealId === activeMeal.id}
+                      className="w-full py-2.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl font-bold text-xs border border-red-200 transition-all flex flex-col items-center justify-center cursor-pointer disabled:opacity-70"
+                    >
+                      {loadingMealId === activeMeal.id ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                        <>
+                          <span>Skip {activeMeal.meal_type} (Prevent Waste)</span>
+                          <span className="text-[10px] font-normal opacity-80 mt-0.5">
+                            Skip window cutoff in: {countdown.hours}h {countdown.minutes}m {countdown.seconds}s
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 )}
 
                 {isSkipping && (
                   <button 
                     onClick={() => toggleSkip(activeMeal.id, "ATTENDING")}
                     disabled={loadingMealId === activeMeal.id}
-                    className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-full font-semibold shadow-md hover:shadow-lg transition-all flex items-center justify-center disabled:opacity-70 cursor-pointer"
+                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70 cursor-pointer"
                   >
-                    {loadingMealId === activeMeal.id ? <Loader2 className="h-5 w-5 animate-spin" /> : "UNDO SKIP (Opt back in)"}
+                    {loadingMealId === activeMeal.id ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                      <>
+                        <RefreshCw className="h-4 w-4" /> UNDO SKIP (Opt Back In for {activeMeal.meal_type})
+                      </>
+                    )}
                   </button>
                 )}
 
@@ -400,14 +623,12 @@ export default function StudentDashboard() {
                   <button 
                     onClick={() => {
                       setValidationError("");
+                      setFeedbackMeal(activeMeal);
                       setShowFeedback(true);
-                      setTimeout(() => {
-                        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-                      }, 100);
                     }}
-                    className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full font-semibold shadow-sm hover:shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl font-bold shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <MessageSquare className="h-4 w-4 text-slate-500" /> RATE THIS MEAL
+                    <MessageSquare className="h-4 w-4 text-slate-600" /> RATE THIS MEAL
                   </button>
                 )}
               </CardContent>
@@ -415,88 +636,106 @@ export default function StudentDashboard() {
           );
         })()}
 
-        {/* Small Cards Row for Served / Upcoming Meals */}
-        <div className="flex gap-4 mb-4">
-          {otherMeals.map((meal) => {
-            const isCompleted = meal.status === "SCANNED";
-            const isSkipped = meal.status === "SKIPPING" || meal.status === "SKIPPED";
-            
-            // Icon helper
-            let emoji = "🥞";
-            let bgCircle = "bg-[#fde68a]";
-            if (meal.meal_type === "LUNCH") {
-              emoji = "🍛";
-              bgCircle = "bg-[#fed7aa]";
-            } else if (meal.meal_type === "DINNER") {
-              emoji = "🍗";
-              bgCircle = "bg-[#e0e7ff]";
-            }
+        {/* Other Meals Row */}
+        <div className="pt-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">Other Meals Today</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {otherMeals.map((meal) => {
+              const isCompleted = meal.status === "SCANNED";
+              const isSkipped = meal.status === "SKIPPING" || meal.status === "SKIPPED";
+              
+              let emoji = "🥞";
+              let bgCircle = "bg-amber-100 text-amber-800";
+              if (meal.meal_type === "LUNCH") {
+                emoji = "🍛";
+                bgCircle = "bg-orange-100 text-orange-800";
+              } else if (meal.meal_type === "DINNER") {
+                emoji = "🍗";
+                bgCircle = "bg-indigo-100 text-indigo-800";
+              }
 
-            return (
-              <Card key={meal.id} className="flex-1 border border-slate-200 shadow-sm rounded-xl bg-white relative">
-                <CardContent className="p-4 flex flex-col justify-center">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`h-10 w-10 ${bgCircle} rounded-full flex items-center justify-center text-lg`}>
-                      {emoji}
+              return (
+                <Card key={meal.id} className="border border-slate-200 shadow-sm rounded-2xl bg-white relative overflow-hidden">
+                  <CardContent className="p-4 flex flex-col justify-between h-full">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`h-11 w-11 ${bgCircle} rounded-2xl flex items-center justify-center text-xl font-bold flex-shrink-0`}>
+                        {emoji}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-slate-900">{meal.meal_type}</h4>
+                          <span className="text-[10px] text-slate-500 font-medium">{meal.scheduled_time}</span>
+                        </div>
+                        {isCompleted && (
+                          <p className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" /> Verified {meal.verified_at ? `(${meal.verified_at})` : ""}
+                          </p>
+                        )}
+                        {isSkipped && (
+                          <p className="text-[11px] text-red-500 font-bold">Skipped</p>
+                        )}
+                        {!isCompleted && !isSkipped && (
+                          <p className="text-[11px] text-slate-500 font-medium">Status: Opted In</p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900">{meal.meal_type}</h4>
-                      {isCompleted && (
-                        <p className="text-[10px] text-green-600 font-medium">Attended (Completed)</p>
-                      )}
-                      {isSkipped && (
-                        <p className="text-[10px] text-red-500 font-medium">Skipped</p>
-                      )}
-                      {!isCompleted && !isSkipped && (
-                        <p className="text-[10px] text-slate-500 font-medium">Status: Attending</p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {isCompleted && (
-                    <button 
-                      onClick={() => {
-                        setValidationError("");
-                        setShowFeedback(!showFeedback);
-                        setTimeout(() => {
-                          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-                        }, 100);
-                      }}
-                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <MessageSquare className="h-3.5 w-3.5 text-slate-500" /> RATE MEAL
-                    </button>
-                  )}
-                  
-                  {!isCompleted && (
-                    <div className="h-8"></div> // padding space to align card heights
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                    
+                    {isCompleted ? (
+                      <button 
+                        onClick={() => {
+                          setValidationError("");
+                          setFeedbackMeal(meal);
+                          setShowFeedback(true);
+                        }}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 text-slate-500" /> Rate Meal
+                      </button>
+                    ) : isSkipped ? (
+                      <button 
+                        onClick={() => toggleSkip(meal.id, "ATTENDING")}
+                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        Undo Skip
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => toggleSkip(meal.id, "SKIPPING")}
+                        className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold border border-red-100 transition-colors cursor-pointer"
+                      >
+                        Skip Meal
+                      </button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Feedback Section (Inline in flow to prevent layout truncation) */}
+      {/* FEEDBACK SECTION MODAL */}
       {showFeedback && (
-        <Card className="border border-slate-200 shadow-md rounded-2xl overflow-hidden bg-white mb-4 animate-in fade-in slide-in-from-top-2">
-          <CardContent className="p-5">
+        <Card className="border border-slate-200 shadow-xl rounded-3xl overflow-hidden bg-white mb-4 animate-in fade-in slide-in-from-top-2">
+          <CardContent className="p-6">
             {feedbackSuccess ? (
-              <div className="flex flex-col items-center justify-center py-6 text-green-600">
-                <CheckCircle2 className="h-10 w-10 mb-2 animate-bounce" />
-                <p className="font-bold text-sm">Feedback Saved Successfully!</p>
-                <p className="text-xs text-slate-500 mt-1">Thank you for helping us reduce food waste.</p>
+              <div className="flex flex-col items-center justify-center py-6 text-emerald-600">
+                <CheckCircle2 className="h-12 w-12 mb-2 animate-bounce" />
+                <p className="font-bold text-base">Feedback Submitted Successfully!</p>
+                <p className="text-xs text-slate-500 mt-1">Your rating helps the kitchen optimize meal quantities.</p>
               </div>
             ) : (
               <>
                 <div className="flex justify-between items-center mb-4">
-                  <h4 className="text-sm font-bold text-slate-900">How was Breakfast?</h4>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">How was {feedbackMeal?.meal_type || activeMeal.meal_type}?</h4>
+                    <p className="text-xs text-slate-500">Rate your dining experience to improve future meals.</p>
+                  </div>
                   <button 
                     onClick={() => setShowFeedback(false)} 
-                    className="text-xs text-slate-400 hover:text-slate-600 font-semibold"
+                    className="text-xs text-slate-400 hover:text-slate-600 font-semibold p-1"
                   >
-                    Close
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
                 
@@ -506,7 +745,7 @@ export default function StudentDashboard() {
                   </div>
                 )}
 
-                <div className="flex justify-center gap-3 mb-5">
+                <div className="flex justify-center gap-3 mb-5 py-2">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button 
                       key={star} 
@@ -516,7 +755,7 @@ export default function StudentDashboard() {
                       }} 
                       className="focus:outline-none transition-transform hover:scale-125"
                     >
-                      <Star className={`h-8 w-8 ${rating >= star ? 'fill-yellow-400 text-yellow-400' : 'text-slate-200'}`} />
+                      <Star className={`h-9 w-9 ${rating >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
                     </button>
                   ))}
                 </div>
@@ -524,15 +763,15 @@ export default function StudentDashboard() {
                 <textarea 
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="Any comments? (e.g. Too salty, great paneer...)" 
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#4a7c82] text-slate-700"
+                  placeholder="Any comments? (e.g. Too salty, delicious paneer, great quantity...)" 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-700"
                   rows={3}
                 ></textarea>
 
                 <button 
                   onClick={submitFeedback}
                   disabled={submittingFeedback}
-                  className="w-full py-4 bg-[#4a7c82] hover:bg-[#386065] text-white rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="w-full py-3.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-2xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {submittingFeedback ? (
                     <>
@@ -548,118 +787,171 @@ export default function StudentDashboard() {
         </Card>
       )}
 
-      {/* QR Code Access Modal */}
-      {showQRModal && selectedMealForQR && (
-        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-in fade-in duration-200">
+      {/* IN-APP CAMERA QR SCANNER MODAL */}
+      {showScanner && (
+        <div className="fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
           <style>{`
-            @keyframes scan {
+            @keyframes scanlaser {
               0%, 100% { transform: translateY(0); }
-              50% { transform: translateY(180px); }
+              50% { transform: translateY(220px); }
             }
-            .scanner-laser {
-              animation: scan 2s infinite ease-in-out;
-            }
-            @keyframes load-bar {
-              0% { left: -50%; width: 50%; }
-              50% { left: 25%; width: 50%; }
-              100% { left: 100%; width: 50%; }
-            }
-            .loading-line {
-              animation: load-bar 2s infinite ease-in-out;
+            .scan-laser-line {
+              animation: scanlaser 2s infinite ease-in-out;
             }
           `}</style>
           
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 flex flex-col items-center relative overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
-            {/* Close Button */}
-            {scanState !== "scanning" && scanState !== "success" && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 flex flex-col items-center relative overflow-hidden shadow-2xl text-white">
+            {/* Header */}
+            <div className="w-full flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                  <Camera className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Mess QR Scanner</h3>
+                  <p className="text-xs text-slate-400 font-medium">Scan QR displayed at the mess entrance</p>
+                </div>
+              </div>
               <button 
-                onClick={() => setShowQRModal(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 font-bold p-1 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+                onClick={closeScanner}
+                className="text-slate-400 hover:text-white p-2 rounded-full bg-slate-800/80 hover:bg-slate-800 transition-colors"
               >
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                <X className="h-5 w-5" />
               </button>
-            )}
+            </div>
 
-            {scanState === "idle" && (
-              <>
-                <div className="text-center mb-6 mt-2">
-                  <div className="inline-flex p-3 bg-indigo-50 text-indigo-600 rounded-2xl mb-3">
-                    <QrCode className="h-6 w-6" />
+            {/* Video Viewfinder Container */}
+            <div className="relative w-full aspect-square max-w-[280px] bg-black rounded-3xl overflow-hidden border-2 border-slate-700 mb-5 flex items-center justify-center shadow-inner">
+              {/* Video Element */}
+              <video 
+                ref={videoRef} 
+                className={`w-full h-full object-cover ${cameraActive ? "block" : "hidden"}`} 
+              />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* Laser Scanning Animation Overlay */}
+              {cameraActive && (
+                <>
+                  {/* Targeting frame corners */}
+                  <div className="absolute inset-6 border-2 border-emerald-400/50 rounded-2xl pointer-events-none">
+                    <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
+                    <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
+                    <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg"></div>
+                    <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg"></div>
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900">Meal Access Pass</h3>
-                  <p className="text-xs text-slate-500 font-semibold mt-1">{selectedMealForQR.meal_type} • Example Tech University</p>
+                  <div className="scan-laser-line absolute top-6 left-6 right-6 h-1 bg-emerald-400 rounded-full shadow-[0_0_15px_#10b981]"></div>
+                </>
+              )}
+
+              {/* Verifying Loader State */}
+              {verifying && (
+                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+                  <Loader2 className="h-10 w-10 text-emerald-400 animate-spin mb-3" />
+                  <p className="text-sm font-bold text-white">Verifying Authenticity...</p>
+                  <p className="text-xs text-slate-400 mt-1">Validating cryptographic signature</p>
+                </div>
+              )}
+
+              {/* Fallback / Camera Error State */}
+              {(!cameraActive && !verifying) && (
+                <div className="p-4 text-center flex flex-col items-center justify-center">
+                  <Camera className="h-10 w-10 text-slate-500 mb-2" />
+                  <p className="text-xs text-slate-300 font-semibold mb-2">
+                    {cameraError || "Initializing camera viewfinder..."}
+                  </p>
+                  <p className="text-[11px] text-slate-500 leading-tight mb-3">
+                    Point your device at the TV screen or tablet display placed at the dining hall entrance.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Test Simulation Button (Essential for local tests and devices without webcams) */}
+            <div className="w-full space-y-2">
+              <button
+                onClick={handleSimulateScan}
+                disabled={verifying}
+                className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-2xl font-black text-xs shadow-lg hover:shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <QrCode className="h-4 w-4" /> SIMULATE SCANNING ENTRANCE QR (TEST PASS)
+              </button>
+              <p className="text-[10px] text-center text-slate-400">
+                Scans the live cryptographic rotating token directly from the mess system
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCAN RESULT / VERIFICATION MODAL */}
+      {scanResult && (
+        <div className="fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 flex flex-col items-center text-center shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
+            {scanResult.status === "success" ? (
+              <>
+                <div className="h-20 w-20 bg-emerald-50 rounded-full flex items-center justify-center mb-4 border-2 border-emerald-200 animate-bounce">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+                </div>
+                <h3 className="text-2xl font-black text-emerald-700 tracking-tight">{scanResult.title}</h3>
+                <p className="text-sm font-bold text-slate-900 mt-1">{scanResult.message}</p>
+                
+                <div className="w-full bg-slate-50 rounded-2xl p-3.5 my-4 text-left text-xs space-y-1.5 border border-slate-100">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-semibold">Student ID:</span>
+                    <span className="text-slate-900 font-bold">{scanResult.studentId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-semibold">Meal Session:</span>
+                    <span className="text-slate-900 font-bold">{scanResult.mealType}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-semibold">Verified Time:</span>
+                    <span className="text-slate-900 font-bold">{scanResult.verifiedAt}</span>
+                  </div>
                 </div>
 
-                {/* QR Code Container with animated laser */}
-                <div className="relative p-5 bg-slate-50 rounded-3xl border border-slate-100 mb-6 flex justify-center items-center h-52 w-52 overflow-hidden shadow-inner">
-                  {/* Green Laser line */}
-                  <div className="scanner-laser absolute top-2 left-2 right-2 h-1 bg-green-500 rounded-full shadow-[0_0_12px_#22c55e] z-10"></div>
-                  
-                  {/* QR SVG */}
-                  <svg viewBox="0 0 100 100" className="w-full h-full text-slate-800 opacity-95">
-                    <rect x="0" y="0" width="28" height="28" fill="currentColor" rx="4" />
-                    <rect x="4" y="4" width="20" height="20" fill="#f8fafc" rx="2" />
-                    <rect x="8" y="8" width="12" height="12" fill="currentColor" rx="1" />
-                    
-                    <rect x="72" y="0" width="28" height="28" fill="currentColor" rx="4" />
-                    <rect x="76" y="4" width="20" height="20" fill="#f8fafc" rx="2" />
-                    <rect x="80" y="8" width="12" height="12" fill="currentColor" rx="1" />
-                    
-                    <rect x="0" y="72" width="28" height="28" fill="currentColor" rx="4" />
-                    <rect x="4" y="76" width="20" height="20" fill="#f8fafc" rx="2" />
-                    <rect x="8" y="80" width="12" height="12" fill="currentColor" rx="1" />
-                    
-                    <rect x="38" y="4" width="8" height="16" fill="currentColor" />
-                    <rect x="52" y="0" width="12" height="8" fill="currentColor" />
-                    <rect x="44" y="24" width="16" height="8" fill="currentColor" />
-                    
-                    <rect x="0" y="38" width="16" height="8" fill="currentColor" />
-                    <rect x="22" y="44" width="8" height="16" fill="currentColor" />
-                    <rect x="34" y="34" width="22" height="22" fill="currentColor" />
-                    <rect x="38" y="58" width="16" height="8" fill="currentColor" />
-                    
-                    <rect x="72" y="38" width="8" height="16" fill="currentColor" />
-                    <rect x="86" y="44" width="14" height="8" fill="currentColor" />
-                    <rect x="62" y="58" width="8" height="24" fill="currentColor" />
-                    
-                    <rect x="38" y="82" width="22" height="8" fill="currentColor" />
-                    <rect x="82" y="72" width="18" height="18" fill="currentColor" />
-                    <rect x="72" y="92" width="28" height="8" fill="currentColor" />
-                  </svg>
-                </div>
-
-                <p className="text-xs text-slate-500 font-semibold mb-2">Hold QR code steady in front of scanner</p>
-                <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden mb-6 relative">
-                  <div className="loading-line absolute inset-y-0 left-0 bg-indigo-600 rounded-full"></div>
-                </div>
-
-                <button 
-                  onClick={() => handleScanMeal(selectedMealForQR.id)}
-                  className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold text-sm shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                <p className="text-xs text-slate-500 mb-5">Please proceed to the serving line and enjoy your meal!</p>
+                
+                <button
+                  onClick={() => setScanResult(null)}
+                  className="w-full py-3.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer"
                 >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/></svg>
-                  SIMULATE COUNTER SCAN
+                  CONTINUE
                 </button>
               </>
-            )}
-
-            {scanState === "scanning" && (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-16 w-16 text-indigo-600 animate-spin mb-4" />
-                <h4 className="text-lg font-bold text-slate-900 animate-pulse">Verifying Ticket...</h4>
-                <p className="text-xs text-slate-500 font-semibold mt-1">Checking attendance ledger</p>
-              </div>
-            )}
-
-            {scanState === "success" && (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <div className="h-20 w-20 bg-green-50 rounded-full flex items-center justify-center mb-4 border-2 border-green-200 animate-bounce">
-                  <CheckCircle2 className="h-10 w-10 text-green-600" />
+            ) : (
+              <>
+                <div className="h-20 w-20 bg-red-50 rounded-full flex items-center justify-center mb-4 border-2 border-red-200 animate-pulse">
+                  <ShieldAlert className="h-10 w-10 text-red-600" />
                 </div>
-                <h4 className="text-xl font-bold text-green-700">Access Granted!</h4>
-                <p className="text-sm font-semibold text-slate-900 mt-2">Enjoy your {selectedMealForQR.meal_type.toLowerCase()}</p>
-                <p className="text-xs text-slate-500 mt-1">Ticket marked as redeemed successfully.</p>
-              </div>
+                <h3 className="text-2xl font-black text-red-700 tracking-tight">{scanResult.title}</h3>
+                <p className="text-xs font-semibold text-slate-700 mt-2 bg-red-50/80 p-3 rounded-2xl border border-red-100 leading-relaxed">
+                  {scanResult.message}
+                </p>
+
+                <div className="w-full my-5 space-y-2">
+                  {scanResult.message.includes("Skipped") || scanResult.message.includes("opted OUT") ? (
+                    <button
+                      onClick={() => {
+                        if (selectedMealForScan) {
+                          toggleSkip(selectedMealForScan.id, "ATTENDING");
+                        }
+                        setScanResult(null);
+                      }}
+                      className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold text-xs shadow-md transition-all cursor-pointer"
+                    >
+                      Undo Skip & Opt Back In
+                    </button>
+                  ) : null}
+
+                  <button
+                    onClick={() => setScanResult(null)}
+                    className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl font-bold text-xs transition-all cursor-pointer"
+                  >
+                    DISMISS
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>

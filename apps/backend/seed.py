@@ -64,6 +64,13 @@ def seed_db():
     # 3. Create dummy meals for today
     today = datetime.now(timezone.utc)
     if not db.query(models.Meal).first():
+        breakfast = models.Meal(
+            institution_id=inst.id,
+            meal_type="BREAKFAST",
+            menu_items="Aloo Paratha, Curd, Pickle, Tea",
+            scheduled_time=today.replace(hour=8, minute=0, second=0, microsecond=0),
+            predicted_count=1450
+        )
         lunch = models.Meal(
             institution_id=inst.id,
             meal_type="LUNCH",
@@ -78,10 +85,9 @@ def seed_db():
             scheduled_time=today.replace(hour=19, minute=0, second=0, microsecond=0),
             predicted_count=1650
         )
-        db.add(lunch)
-        db.add(dinner)
+        db.add_all([breakfast, lunch, dinner])
         db.commit()
-        print("Created Meals for today.")
+        print("Created Meals for today (Breakfast, Lunch, Dinner).")
         
     # 4. Add Inventory Items
     if not db.query(models.InventoryItem).first():

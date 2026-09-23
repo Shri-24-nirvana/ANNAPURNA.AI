@@ -27,6 +27,7 @@ class Institution(Base):
     subscription_plan = Column(String)
     total_students = Column(Integer)
     onboarding_status = Column(String)
+    qr_secret = Column(String, default="sec_annapurna_mess_qr_key_2026")
 
     users = relationship("User", back_populates="institution")
     meals = relationship("Meal", back_populates="institution")
@@ -51,8 +52,10 @@ class Attendance(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     meal_id = Column(Integer, ForeignKey("meals.id"))
-    status = Column(String) # ATTENDING, SKIPPED
+    status = Column(String) # ATTENDING, SKIPPING, SCANNED
     skip_reason = Column(String, nullable=True)
+    verification_method = Column(String, default="MESS_QR") # MESS_QR, MANUAL_OVERRIDE
+    verified_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="attendance")
