@@ -54,9 +54,6 @@ const DEFAULT_MEALS: MealItem[] = [
 export default function StudentDashboard() {
   const [meals, setMeals] = useState<MealItem[]>(DEFAULT_MEALS);
   const [loadingMealId, setLoadingMealId] = useState<number | null>(null);
-  
-  // Real-time time slot simulation or auto-detection
-  const [timeMode, setTimeMode] = useState<"AUTO" | "BREAKFAST" | "LUNCH" | "DINNER">("AUTO");
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   // Scanner state
@@ -129,9 +126,6 @@ export default function StudentDashboard() {
 
   // Real-Time Meal Logic
   const getActiveMealType = (): "BREAKFAST" | "LUNCH" | "DINNER" => {
-    if (timeMode !== "AUTO") {
-      return timeMode;
-    }
     const hours = currentTime.getHours();
     const minutes = currentTime.getMinutes();
     const timeVal = hours + minutes / 60;
@@ -412,50 +406,6 @@ export default function StudentDashboard() {
 
   return (
     <div className="p-6 space-y-6 pb-28 max-w-2xl mx-auto font-sans">
-      {/* Real-Time Live Clock & Time Slot Selector Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100">
-        <div className="flex items-center gap-2.5">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <div>
-            <p className="text-xs font-extrabold text-slate-900 tracking-tight">LIVE MEAL SCHEDULE</p>
-            <p className="text-[11px] font-semibold text-slate-500">
-              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} • Active: <strong className="text-emerald-700">{activeMealType}</strong>
-            </p>
-          </div>
-        </div>
-
-        {/* Demo Time Slot Pills */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
-          <button
-            onClick={() => setTimeMode("AUTO")}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "AUTO" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-          >
-            Auto Live
-          </button>
-          <button
-            onClick={() => setTimeMode("BREAKFAST")}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "BREAKFAST" ? "bg-amber-500 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-          >
-            Breakfast
-          </button>
-          <button
-            onClick={() => setTimeMode("LUNCH")}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "LUNCH" ? "bg-orange-500 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-          >
-            Lunch
-          </button>
-          <button
-            onClick={() => setTimeMode("DINNER")}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${timeMode === "DINNER" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-          >
-            Dinner
-          </button>
-        </div>
-      </div>
-
       {/* Impact Summary */}
       <Card className="border-0 shadow-sm rounded-2xl overflow-hidden bg-white">
         <CardContent className="p-4">
