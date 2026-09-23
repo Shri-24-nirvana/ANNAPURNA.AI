@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import hmac
 import hashlib
@@ -10,13 +10,13 @@ import time
 import secrets
 import json
 
-import models, database, auth
+import models, database, auth, ai_engine
 from pydantic import BaseModel
 
 # Create database tables
 models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI(title="Annapurna AI API", version="2.0.0")
+app = FastAPI(title="Annapurna AI API", version="2.1.0")
 
 # CORS Setup for Next.js frontend
 app.add_middleware(
@@ -82,7 +82,6 @@ def generate_mess_qr_token(institution_id: int, institution_name: str, secret_ke
     expires_at = now_ts + ttl_seconds
     nonce = secrets.token_hex(4)
     
-    # Message to sign
     msg = f"ANNAPURNA_MESS_V1:{institution_id}:{now_ts}:{expires_at}:{nonce}"
     signature = hmac.new(secret_key.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
     
@@ -151,6 +150,59 @@ def verify_mess_qr_payload(payload_input: str, expected_institution_id: int, sec
         raise ValueError("QR code signature verification failed. Tampered or counterfeit QR code.")
 
     return data
+
+
+# --- MEAL PHASE & SCHEDULING ENGINE ---
+
+DEFAULT_MEAL_SCHEDULES = {
+    "BREAKFAST": {"start_h": 8, "start_m": 0, "end_h": 10, "end_m": 0, "cutoff_mins": 60},
+    "LUNCH": {"start_h": 12, "start_m": 30, "end_h": 14, "end_m": 0, "cutoff_mins": 60},
+    "DINNER": {"start_h": 19, "start_m": 0, "end_h": 21, "end_m": 0, "cutoff_mins": 60},
+}
+
+def determine_meal_phase(meal: models.Meal, ref_time: Optional[datetime] = None) -> dict:
+    """
+    Authoritative server-side meal phase resolution:
+    - PLANNING: Before meal start (opt-outs and headcount live; raw materials computed).
+    - ATTENDANCE: During serving window (mess QR active, live gate scan stream).
+    - SUMMARY: After serving window (reconciliation of attended vs no-shows vs skips).
+    """
+    now = ref_time if ref_time else datetime.now()
+
+    # Fallback to standard schedules if not explicitly in DB
+    sched = DEFAULT_MEAL_SCHEDULES.get(meal.meal_type.upper(), DEFAULT_MEAL_SCHEDULES["LUNCH"])
+    start_h = meal.start_hour if meal.start_hour is not None else sched["start_h"]
+    start_m = meal.start_minute if meal.start_minute is not None else sched["start_m"]
+    end_h = meal.end_hour if meal.end_hour is not None else sched["end_h"]
+    end_m = meal.end_minute if meal.end_minute is not None else sched["end_m"]
+    cutoff_mins = meal.cutoff_minutes_before_start if meal.cutoff_minutes_before_start is not None else sched["cutoff_mins"]
+
+    start_dt = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    end_dt = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+    cutoff_dt = start_dt - timedelta(minutes=cutoff_mins)
+
+    is_cutoff_passed = now >= cutoff_dt
+
+    if now < start_dt:
+        phase = "PLANNING"
+    elif start_dt <= now <= end_dt:
+        phase = "ATTENDANCE"
+    else:
+        phase = "SUMMARY"
+
+    seconds_until_start = max(0, int((start_dt - now).total_seconds())) if now < start_dt else 0
+    seconds_until_cutoff = max(0, int((cutoff_dt - now).total_seconds())) if now < cutoff_dt else 0
+
+    return {
+        "phase": phase,
+        "is_cutoff_passed": is_cutoff_passed,
+        "start_time_str": start_dt.strftime("%I:%M %p"),
+        "end_time_str": end_dt.strftime("%I:%M %p"),
+        "cutoff_time_str": cutoff_dt.strftime("%I:%M %p"),
+        "cutoff_minutes": cutoff_mins,
+        "seconds_until_start": seconds_until_start,
+        "seconds_until_cutoff": seconds_until_cutoff
+    }
 
 
 # --- PYDANTIC SCHEMAS ---
@@ -225,22 +277,38 @@ def get_today_meals(current_user: models.User = Depends(auth.get_current_user), 
         status_str = attendance.status if attendance else "ATTENDING"
         verified_at_str = attendance.verified_at.strftime("%I:%M %p") if (attendance and attendance.verified_at) else None
         
+        timing = determine_meal_phase(meal)
+        
         result.append({
             "id": meal.id,
             "meal_type": meal.meal_type,
             "menu_items": meal.menu_items,
-            "scheduled_time": meal.scheduled_time.strftime("%I:%M %p") if isinstance(meal.scheduled_time, datetime) else str(meal.scheduled_time),
+            "scheduled_time": f"{timing['start_time_str']} - {timing['end_time_str']}",
             "status": status_str,
-            "verified_at": verified_at_str
+            "verified_at": verified_at_str,
+            "cutoff_time_str": timing["cutoff_time_str"],
+            "is_cutoff_passed": timing["is_cutoff_passed"]
         })
         
     return result
 
 @app.post("/attendance/skip")
-def toggle_skip_meal(data: AttendanceUpdate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+async def toggle_skip_meal(data: AttendanceUpdate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "student":
         raise HTTPException(status_code=403, detail="Not authorized")
         
+    meal = db.query(models.Meal).filter_by(id=data.meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    # Check cutoff window
+    timing = determine_meal_phase(meal)
+    if timing["is_cutoff_passed"] and data.status in ["SKIPPING", "SKIPPED"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The opt-out cutoff for {meal.meal_type} has passed ({timing['cutoff_time_str']}). Headcount is locked for kitchen preparation."
+        )
+
     attendance = db.query(models.Attendance).filter(
         models.Attendance.user_id == current_user.id,
         models.Attendance.meal_id == data.meal_id
@@ -261,6 +329,16 @@ def toggle_skip_meal(data: AttendanceUpdate, current_user: models.User = Depends
         db.add(new_attendance)
         
     db.commit()
+
+    # Broadcast real-time update to manager dashboard (headcount changed)
+    await ws_manager.broadcast({
+        "event": "HEADCOUNT_UPDATED",
+        "meal_id": meal.id,
+        "meal_type": meal.meal_type,
+        "student_id": current_user.student_id or f"ET-{current_user.id}",
+        "new_status": data.status
+    })
+
     return {"message": "Attendance updated successfully", "status": data.status}
 
 
@@ -297,7 +375,6 @@ async def verify_mess_qr(data: VerifyMessQRRequest, current_user: models.User = 
         meal = db.query(models.Meal).filter(models.Meal.meal_type == data.meal_type.upper(), models.Meal.institution_id == inst.id).first()
         
     if not meal:
-        # Fallback to the first available meal today
         meal = db.query(models.Meal).filter(models.Meal.institution_id == inst.id).first()
 
     if not meal:
@@ -386,7 +463,93 @@ def submit_feedback(data: FeedbackCreate, current_user: models.User = Depends(au
     return {"message": "Feedback submitted successfully"}
 
 
-# --- MESS MANAGER APP ENDPOINTS ---
+# --- MESS MANAGER APP ENDPOINTS (MEAL SESSION & PHASE DRIVEN) ---
+
+@app.get("/manager/meal-session/current")
+def get_current_meal_session(
+    meal_type_override: Optional[str] = None,
+    current_user: models.User = Depends(auth.get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """
+    Returns server-side authoritative meal phase (PLANNING, ATTENDANCE, SUMMARY),
+    live opted-in headcount, raw material recipe requirements, and cutoff status.
+    """
+    inst_id = current_user.institution_id or 1
+    inst = db.query(models.Institution).filter_by(id=inst_id).first()
+    total_students = inst.total_students if inst else 2000
+
+    meals = db.query(models.Meal).filter_by(institution_id=inst_id).all()
+    if not meals:
+        raise HTTPException(status_code=404, detail="No meals scheduled for this mess.")
+
+    # Select meal by override or pick active based on time
+    if meal_type_override:
+        meal = db.query(models.Meal).filter(
+            models.Meal.institution_id == inst_id,
+            models.Meal.meal_type == meal_type_override.upper()
+        ).first() or meals[0]
+    else:
+        # Pick meal based on current time window
+        now = datetime.now()
+        h = now.hour + now.minute / 60
+        if h < 11:
+            target_type = "BREAKFAST"
+        elif h < 16.5:
+            target_type = "LUNCH"
+        else:
+            target_type = "DINNER"
+        meal = db.query(models.Meal).filter(
+            models.Meal.institution_id == inst_id,
+            models.Meal.meal_type == target_type
+        ).first() or meals[0]
+
+    # Resolve Server-Side Phase & Timing
+    timing = determine_meal_phase(meal)
+
+    # Compute Headcount
+    skipped_count = db.query(models.Attendance).filter(
+        models.Attendance.meal_id == meal.id,
+        models.Attendance.status == "SKIPPING"
+    ).count()
+
+    scanned_count = db.query(models.Attendance).filter(
+        models.Attendance.meal_id == meal.id,
+        models.Attendance.status == "SCANNED"
+    ).count()
+
+    opted_in_count = max(0, total_students - skipped_count)
+    predicted_attendance = ai_engine.calculate_predicted_attendance(total_students, skipped_count)
+    
+    # In Summary phase, calculate actual no-shows
+    no_shows = max(0, opted_in_count - scanned_count) if (scanned_count > 0 or timing["phase"] == "SUMMARY") else 0
+
+    # Calculate Raw Materials
+    raw_materials = ai_engine.generate_prep_sheet(predicted_attendance, meal.meal_type)
+
+    return {
+        "meal_id": meal.id,
+        "meal_type": meal.meal_type,
+        "menu_items": meal.menu_items,
+        "institution_name": inst.name if inst else "Campus Mess",
+        "phase": timing["phase"],
+        "is_cutoff_passed": timing["is_cutoff_passed"],
+        "start_time_str": timing["start_time_str"],
+        "end_time_str": timing["end_time_str"],
+        "cutoff_time_str": timing["cutoff_time_str"],
+        "cutoff_minutes": timing["cutoff_minutes"],
+        "seconds_until_start": timing["seconds_until_start"],
+        "seconds_until_cutoff": timing["seconds_until_cutoff"],
+        "headcount": {
+            "total_enrolled": total_students,
+            "opted_in": opted_in_count,
+            "skipped": skipped_count,
+            "predicted_attendance": predicted_attendance,
+            "scanned_count": scanned_count,
+            "no_shows": no_shows
+        },
+        "raw_materials": raw_materials
+    }
 
 @app.get("/manager/mess-qr")
 def get_mess_qr(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
@@ -433,14 +596,12 @@ def get_live_attendance(current_user: models.User = Depends(auth.get_current_use
     inst = db.query(models.Institution).filter_by(id=inst_id).first()
     total_students = inst.total_students if inst else 2000
     
-    # Target current meal (e.g. Lunch or latest meal)
     meal = db.query(models.Meal).filter_by(institution_id=inst_id, meal_type="LUNCH").first()
     if not meal:
         meal = db.query(models.Meal).filter_by(institution_id=inst_id).first()
         
     meal_id = meal.id if meal else 1
     
-    # Real DB counts
     verified_records = db.query(models.Attendance).filter(
         models.Attendance.meal_id == meal_id,
         models.Attendance.status == "SCANNED"
@@ -465,7 +626,6 @@ def get_live_attendance(current_user: models.User = Depends(auth.get_current_use
                 "meal_type": meal.meal_type if meal else "LUNCH"
             })
             
-    # If no live scans exist yet, provide realistic active baseline
     if not recent_students:
         recent_students = [
             {"student_id": "ET10492", "email": "aarav.patel@example.com", "department": "Computer Science", "hostel": "Block B - R104", "verified_at": "1:14:32 PM", "meal_type": "LUNCH"},
@@ -492,34 +652,10 @@ def get_live_attendance(current_user: models.User = Depends(auth.get_current_use
 
 @app.get("/manager/prep-sheet")
 def get_prep_sheet(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
-    inst_id = current_user.institution_id or 1
-    inst = db.query(models.Institution).filter_by(id=inst_id).first()
-    
-    lunch = db.query(models.Meal).filter(
-        models.Meal.institution_id == inst_id,
-        models.Meal.meal_type == "LUNCH"
-    ).first()
-    
-    total_students = inst.total_students if inst else 2000
-    
-    if lunch:
-        skipped_count = db.query(models.Attendance).filter(
-            models.Attendance.meal_id == lunch.id,
-            models.Attendance.status == "SKIPPING"
-        ).count()
-    else:
-        skipped_count = 0
-        
-    import ai_engine
-    predicted = ai_engine.calculate_predicted_attendance(total_students, skipped_count)
-    prep_data = ai_engine.generate_prep_sheet(predicted)
-    
-    return {
-        "predicted_attendance": predicted,
-        "total_enrolled": total_students,
-        "skipped_count": skipped_count,
-        "prep_data": prep_data
-    }
+    """
+    Standalone prep-sheet endpoint synced with the meal session engine.
+    """
+    return get_current_meal_session(None, current_user, db)
 
 @app.get("/manager/inventory")
 def get_inventory(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):

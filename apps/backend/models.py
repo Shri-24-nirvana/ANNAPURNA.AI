@@ -40,6 +40,11 @@ class Meal(Base):
     meal_type = Column(String) # BREAKFAST, LUNCH, DINNER
     menu_items = Column(String) # JSON or comma separated
     scheduled_time = Column(DateTime)
+    start_hour = Column(Integer, default=12)
+    start_minute = Column(Integer, default=30)
+    end_hour = Column(Integer, default=14)
+    end_minute = Column(Integer, default=0)
+    cutoff_minutes_before_start = Column(Integer, default=60)
     predicted_count = Column(Integer, nullable=True)
     actual_count = Column(Integer, nullable=True)
 

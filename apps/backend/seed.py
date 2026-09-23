@@ -69,6 +69,11 @@ def seed_db():
             meal_type="BREAKFAST",
             menu_items="Aloo Paratha, Curd, Pickle, Tea",
             scheduled_time=today.replace(hour=8, minute=0, second=0, microsecond=0),
+            start_hour=8,
+            start_minute=0,
+            end_hour=10,
+            end_minute=0,
+            cutoff_minutes_before_start=60,
             predicted_count=1450
         )
         lunch = models.Meal(
@@ -76,6 +81,11 @@ def seed_db():
             meal_type="LUNCH",
             menu_items="Paneer Tikka, Rice, Daal, Naan",
             scheduled_time=today.replace(hour=12, minute=30, second=0, microsecond=0),
+            start_hour=12,
+            start_minute=30,
+            end_hour=14,
+            end_minute=0,
+            cutoff_minutes_before_start=60,
             predicted_count=1800
         )
         dinner = models.Meal(
@@ -83,6 +93,11 @@ def seed_db():
             meal_type="DINNER",
             menu_items="Chicken Curry, Roti, Salad",
             scheduled_time=today.replace(hour=19, minute=0, second=0, microsecond=0),
+            start_hour=19,
+            start_minute=0,
+            end_hour=21,
+            end_minute=0,
+            cutoff_minutes_before_start=60,
             predicted_count=1650
         )
         db.add_all([breakfast, lunch, dinner])
