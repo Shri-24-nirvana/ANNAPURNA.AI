@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Leaf, Award, Loader2, Star, MessageSquare, QrCode, Camera, AlertCircle, X, ShieldAlert, Sparkles, RefreshCw } from "lucide-react";
+import { CheckCircle2, Leaf, Award, Loader2, Star, MessageSquare, QrCode, Camera, AlertCircle, X, ShieldAlert, RefreshCw } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import jsQR from "jsqr";
@@ -435,13 +435,10 @@ export default function StudentDashboard() {
 
       {/* Main Meal Section */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-950 uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="h-4 w-4 text-emerald-600" /> Currently Serving / Next Meal
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+            Current Meal Session
           </h3>
-          <span className="text-xs font-semibold text-slate-500">
-            {activeMeal.scheduled_time}
-          </span>
         </div>
         
         {/* HERO CARD FOR CURRENT ACTIVE MEAL */}
@@ -476,22 +473,6 @@ export default function StudentDashboard() {
                       <CheckCircle2 className="h-4 w-4" /> ACCESS VERIFIED ({activeMeal.verified_at || "Redeemed"})
                     </span>
                   </div>
-                )}
-
-                {/* In-App Scan Mess QR Trigger Badge */}
-                {isAttending && (
-                  <button 
-                    onClick={() => openScanner(activeMeal)}
-                    className="absolute bottom-3 right-3 bg-slate-900/90 hover:bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 border border-white/20 backdrop-blur-md z-10"
-                  >
-                    <div className="p-1.5 bg-emerald-500 rounded-xl text-slate-950">
-                      <Camera className="h-4 w-4" />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-xs font-extrabold text-white leading-tight">Scan Mess QR</p>
-                      <p className="text-[8px] font-bold text-emerald-300 tracking-wider leading-none">IN-APP SCANNER</p>
-                    </div>
-                  </button>
                 )}
               </div>
 
