@@ -587,26 +587,24 @@ export default function StudentDashboard() {
 
               return (
                 <Card key={meal.id} className="border border-slate-200 shadow-sm rounded-2xl bg-white relative overflow-hidden">
-                  <CardContent className="p-4 flex flex-col justify-between h-full">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className={`h-11 w-11 ${bgCircle} rounded-2xl flex items-center justify-center text-xl font-bold flex-shrink-0`}>
+                  <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className={`h-11 w-11 ${bgCircle} rounded-2xl flex items-center justify-center text-xl font-bold flex-shrink-0 mt-0.5`}>
                         {emoji}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-bold text-slate-900">{meal.meal_type}</h4>
-                          <span className="text-[10px] text-slate-500 font-medium">{meal.scheduled_time}</span>
-                        </div>
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <h4 className="text-sm font-bold text-slate-900 tracking-tight">{meal.meal_type}</h4>
+                        <p className="text-[11px] font-semibold text-slate-500">{meal.scheduled_time}</p>
                         {isCompleted && (
-                          <p className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" /> Verified {meal.verified_at ? `(${meal.verified_at})` : ""}
+                          <p className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 pt-0.5">
+                            <CheckCircle2 className="h-3 w-3" /> Status: Verified {meal.verified_at ? `(${meal.verified_at})` : ""}
                           </p>
                         )}
                         {isSkipped && (
-                          <p className="text-[11px] text-red-500 font-bold">Skipped</p>
+                          <p className="text-[11px] text-red-600 font-bold pt-0.5">Status: Skipped</p>
                         )}
                         {!isCompleted && !isSkipped && (
-                          <p className="text-[11px] text-slate-500 font-medium">Status: Opted In</p>
+                          <p className="text-[11px] text-emerald-700 font-semibold pt-0.5">Status: Opted In</p>
                         )}
                       </div>
                     </div>
