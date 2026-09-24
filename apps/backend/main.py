@@ -10,13 +10,19 @@ import time
 import secrets
 import json
 
-import models, database, auth, ai_engine
+import models, database, auth, ai_engine, rewards_engine
 from pydantic import BaseModel
 
-# Create database tables
+# Create database tables and seed reward rules
 models.Base.metadata.create_all(bind=database.engine)
+try:
+    with database.SessionLocal() as _db:
+        rewards_engine.seed_default_reward_rules(_db)
+except Exception as _e:
+    print(f"Warning initializing reward rules: {_e}")
 
 app = FastAPI(title="Annapurna AI API", version="2.1.0")
+
 
 # CORS Setup for Next.js frontend
 app.add_middleware(
@@ -237,6 +243,23 @@ class FeedbackCreate(BaseModel):
     rating: int
     comment: str
 
+class RedeemCouponRequest(BaseModel):
+    coupon_id: str
+
+class VerifyRedemptionCodeRequest(BaseModel):
+    redemption_code: str
+
+class UpdateRewardRuleRequest(BaseModel):
+    name: Optional[str] = None
+    reward_title: Optional[str] = None
+    reward_description: Optional[str] = None
+    required_scanned_meals: Optional[int] = None
+    required_feedbacks: Optional[int] = None
+    required_streak_days: Optional[int] = None
+    validity_days: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
 
 # --- AUTH ENDPOINTS ---
 
@@ -417,7 +440,14 @@ async def verify_mess_qr(data: VerifyMessQRRequest, current_user: models.User = 
     db.commit()
     db.refresh(attendance)
 
-    # 4. Broadcast Real-time event to Manager Command Center
+    # 4. Automatically Evaluate & Grant Rewards / Coupons
+    new_coupons = []
+    try:
+        new_coupons = rewards_engine.evaluate_and_grant_rewards(current_user.id, db)
+    except Exception as e:
+        print(f"Error evaluating rewards during QR scan: {e}")
+
+    # 5. Broadcast Real-time event to Manager Command Center
     event_payload = {
         "event": "STUDENT_VERIFIED",
         "student": {
@@ -438,12 +468,23 @@ async def verify_mess_qr(data: VerifyMessQRRequest, current_user: models.User = 
         "meal_type": meal.meal_type,
         "student_id": current_user.student_id or f"ET-{current_user.id}",
         "hostel": current_user.hostel or "Campus Block",
-        "verified_at": now_utc.strftime("%I:%M %p")
+        "verified_at": now_utc.strftime("%I:%M %p"),
+        "new_coupons_earned": len(new_coupons),
+        "new_rewards": [c.title for c in new_coupons]
     }
 
 
 @app.post("/student/feedback")
 def submit_feedback(data: FeedbackCreate, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can submit meal feedback.")
+
+    if not data.comment or len(data.comment.strip()) < 5:
+        raise HTTPException(
+            status_code=400, 
+            detail="Please provide genuine constructive feedback (minimum 5 characters)."
+        )
+
     sentiment = "NEUTRAL"
     if data.rating >= 4:
         sentiment = "POSITIVE"
@@ -455,12 +496,139 @@ def submit_feedback(data: FeedbackCreate, current_user: models.User = Depends(au
         user_id=current_user.id,
         meal_id=data.meal_id,
         rating=data.rating,
-        comment=data.comment,
+        comment=data.comment.strip(),
         sentiment=sentiment
     )
     db.add(feedback)
     db.commit()
-    return {"message": "Feedback submitted successfully"}
+
+    # Automatically Evaluate & Grant Rewards
+    new_coupons = []
+    try:
+        new_coupons = rewards_engine.evaluate_and_grant_rewards(current_user.id, db)
+    except Exception as e:
+        print(f"Error evaluating rewards during feedback: {e}")
+
+    return {
+        "message": "Feedback submitted successfully! Thank you for contributing to campus food quality.",
+        "new_coupons_earned": len(new_coupons),
+        "new_rewards": [c.title for c in new_coupons]
+    }
+
+
+# --- REWARDS & COUPONS ENDPOINTS ---
+
+@app.get("/student/rewards")
+def get_student_rewards(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can access their rewards.")
+    return rewards_engine.get_student_rewards_summary(current_user.id, db)
+
+
+@app.post("/student/coupons/redeem")
+def redeem_coupon(data: RedeemCouponRequest, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can redeem coupons.")
+    try:
+        result = rewards_engine.redeem_student_coupon(data.coupon_id, current_user.id, db)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to redeem coupon: {str(e)}")
+
+
+@app.get("/manager/coupons")
+def get_manager_coupons(
+    status_filter: Optional[str] = None,
+    current_user: models.User = Depends(auth.get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """
+    Manager endpoint to view redeemed items, search coupons, and track dispensed rewards.
+    """
+    query = db.query(models.Coupon)
+    if status_filter:
+        query = query.filter(models.Coupon.status == status_filter.upper())
+    coupons = query.order_by(models.Coupon.earned_date.desc()).all()
+    
+    results = []
+    for c in coupons:
+        student = db.query(models.User).filter_by(id=c.student_id).first()
+        results.append({
+            "id": c.id,
+            "reward_type": c.reward_type,
+            "title": c.title,
+            "description": c.description,
+            "status": c.status,
+            "earned_date": c.earned_date.strftime("%b %d, %Y") if c.earned_date else "",
+            "expiry_date": c.expiry_date.strftime("%b %d, %Y") if c.expiry_date else "",
+            "redeemed_date": c.redeemed_date.strftime("%b %d, %Y - %I:%M %p") if c.redeemed_date else None,
+            "reason": c.reason,
+            "redemption_code": c.redemption_code,
+            "student_id": student.student_id if student else "N/A",
+            "student_email": student.email if student else "N/A"
+        })
+        
+    total_redeemed = db.query(models.Coupon).filter_by(status="REDEEMED").count()
+    total_available = db.query(models.Coupon).filter_by(status="AVAILABLE").count()
+    
+    return {
+        "coupons": results,
+        "total_count": len(results),
+        "total_redeemed": total_redeemed,
+        "total_available": total_available
+    }
+
+
+@app.post("/manager/coupons/verify-code")
+def verify_manager_coupon_code(
+    data: VerifyRedemptionCodeRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Counter staff enters 8-character student code to verify and dispense reward.
+    """
+    try:
+        res = rewards_engine.verify_manager_redemption_code(data.redemption_code, current_user.id, db)
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/reward-rules")
+def get_reward_rules(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    rules = db.query(models.RewardRule).all()
+    return rules
+
+
+@app.put("/admin/reward-rules/{rule_id}")
+def update_reward_rule(
+    rule_id: str,
+    data: UpdateRewardRuleRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    rule = db.query(models.RewardRule).filter_by(id=rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Reward rule not found")
+        
+    if data.name is not None: rule.name = data.name
+    if data.reward_title is not None: rule.reward_title = data.reward_title
+    if data.reward_description is not None: rule.reward_description = data.reward_description
+    if data.required_scanned_meals is not None: rule.required_scanned_meals = data.required_scanned_meals
+    if data.required_feedbacks is not None: rule.required_feedbacks = data.required_feedbacks
+    if data.required_streak_days is not None: rule.required_streak_days = data.required_streak_days
+    if data.validity_days is not None: rule.validity_days = data.validity_days
+    if data.is_active is not None: rule.is_active = data.is_active
+    
+    db.commit()
+    db.refresh(rule)
+    return {"message": f"Reward rule {rule_id} updated successfully", "rule": rule}
+
 
 
 # --- MESS MANAGER APP ENDPOINTS (MEAL SESSION & PHASE DRIVEN) ---

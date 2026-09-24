@@ -18,6 +18,7 @@ class User(Base):
 
     institution = relationship("Institution", back_populates="users")
     attendance = relationship("Attendance", back_populates="user")
+    coupons = relationship("Coupon", foreign_keys="[Coupon.student_id]", back_populates="student")
 
 class Institution(Base):
     __tablename__ = "institutions"
@@ -95,3 +96,44 @@ class Feedback(Base):
 
     institution = relationship("Institution")
     meal = relationship("Meal")
+    user = relationship("User")
+
+class RewardRule(Base):
+    __tablename__ = "reward_rules"
+
+    id = Column(String, primary_key=True, index=True) # e.g. "rule_10_meals", "rule_20_meals_10_feedbacks"
+    name = Column(String, index=True)
+    reward_type = Column(String) # FREE_COFFEE, FREE_MEAL, BONUS_DESSERT, SPECIAL_SNACK
+    reward_title = Column(String)
+    reward_description = Column(String)
+    required_scanned_meals = Column(Integer, default=0)
+    required_feedbacks = Column(Integer, default=0)
+    required_streak_days = Column(Integer, default=0)
+    validity_days = Column(Integer, default=30)
+    is_active = Column(Boolean, default=True)
+    reason_template = Column(String) # Template with placeholders e.g. "You attended {scanned_count} verified meals!"
+
+    coupons = relationship("Coupon", back_populates="rule")
+
+class Coupon(Base):
+    __tablename__ = "coupons"
+
+    id = Column(String, primary_key=True, index=True) # e.g. "CPN-COFFEE-84920"
+    student_id = Column(Integer, ForeignKey("users.id"), index=True)
+    rule_id = Column(String, ForeignKey("reward_rules.id"))
+    reward_type = Column(String) # FREE_COFFEE, FREE_MEAL, etc.
+    title = Column(String)
+    description = Column(String)
+    status = Column(String, default="AVAILABLE", index=True) # AVAILABLE, REDEEMED, EXPIRED
+    earned_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expiry_date = Column(DateTime)
+    redeemed_date = Column(DateTime, nullable=True)
+    reason = Column(String) # Human-readable "Why you got this" message
+    redemption_code = Column(String, unique=True, index=True) # e.g. "ANN-7392-CF"
+    redeemed_by_manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    milestone_cycle = Column(Integer, default=1) # Cycle number to prevent duplicate rewards for same milestone
+
+    student = relationship("User", foreign_keys=[student_id], back_populates="coupons")
+    rule = relationship("RewardRule", back_populates="coupons")
+    manager = relationship("User", foreign_keys=[redeemed_by_manager_id])
+

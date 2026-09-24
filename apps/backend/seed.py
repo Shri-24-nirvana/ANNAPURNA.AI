@@ -168,7 +168,59 @@ def seed_db():
                 skips.append(skip)
             db.add_all(skips)
             db.commit()
-            print("Created Medical Campus data.")
+    # 7. Seed Reward Rules & Initial Student Progress
+    import rewards_engine
+    rewards_engine.seed_default_reward_rules(db)
+    
+    student = db.query(models.User).filter_by(email="student@example.com").first()
+    lunch = db.query(models.Meal).filter_by(meal_type="LUNCH").first()
+    
+    if student and lunch:
+        # Check if student has attendance history
+        existing_scans = db.query(models.Attendance).filter_by(user_id=student.id, status="SCANNED").count()
+        if existing_scans < 15:
+            # Seed 14 verified meals across past 5 days
+            now_utc = datetime.now(timezone.utc)
+            for i in range(14):
+                day_offset = i // 3
+                scan_dt = now_utc - timedelta(days=day_offset, hours=(i % 3) * 4)
+                att = models.Attendance(
+                    user_id=student.id,
+                    meal_id=lunch.id,
+                    status="SCANNED",
+                    verification_method="MESS_QR",
+                    verified_at=scan_dt
+                )
+                db.add(att)
+                
+            # Seed 8 genuine feedbacks
+            feedbacks = [
+                "The Kadhai paneer today had great balance of spices and fresh coriander.",
+                "Yellow dal tadka was wholesome, loved the garlic tempering.",
+                "Tandoori roti was soft and warm at the counter. Fast service.",
+                "Rice quality has improved significantly over the last two weeks.",
+                "Raita was nicely chilled and seasoned with roasted jeera.",
+                "Loved the Sunday biryani! Quantity and flavor were exceptional.",
+                "Quick scan at the QR kiosk made entry super smooth today.",
+                "Great hygiene and clean serving trays at the lunch counter."
+            ]
+            for c in feedbacks:
+                fb = models.Feedback(
+                    institution_id=inst.id,
+                    user_id=student.id,
+                    meal_id=lunch.id,
+                    rating=5,
+                    comment=c,
+                    sentiment="POSITIVE"
+                )
+                db.add(fb)
+                
+            db.commit()
+            print("Seeded student attendance history & genuine feedbacks.")
+            
+        # Trigger reward evaluation
+        granted = rewards_engine.evaluate_and_grant_rewards(student.id, db)
+        print(f"Granted {len(granted)} rewards for demo student.")
         
     db.close()
     print("Seeding complete.")
@@ -177,3 +229,4 @@ if __name__ == "__main__":
     # Ensure tables exist
     models.Base.metadata.create_all(bind=database.engine)
     seed_db()
+
